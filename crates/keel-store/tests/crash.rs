@@ -238,7 +238,8 @@ fn killing_a_writer_mid_save_never_corrupts_the_vault() {
         // reopen it. This is why the lock is tied to the file descriptor.
         let reacquired = write_vault(
             &paths,
-            &payload(999_999 % 1_000_000),
+            // A sentinel generation that still fits the six-digit payload format.
+            &payload(999_999),
             if paths.exists() {
                 WriteMode::Replace
             } else {
