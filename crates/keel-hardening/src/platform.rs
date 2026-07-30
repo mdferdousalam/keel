@@ -99,8 +99,7 @@ pub fn apply_injection_mitigations() -> bool {
         // function and the policy discriminants are in `Threading`, but the policy *structs*
         // are in `SystemServices`. Importing all five from `Threading` resolved none of them.
         use windows_sys::Win32::System::SystemServices::{
-            PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY,
-            PROCESS_MITIGATION_IMAGE_LOAD_POLICY,
+            PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY, PROCESS_MITIGATION_IMAGE_LOAD_POLICY,
         };
         use windows_sys::Win32::System::Threading::{
             ProcessExtensionPointDisablePolicy, ProcessImageLoadPolicy, SetProcessMitigationPolicy,
