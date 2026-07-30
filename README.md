@@ -3,9 +3,11 @@
 A local-first, open-source password manager built for people who want to verify
 their tools rather than trust them.
 
-> **Status: early development.** The cryptographic core and the on-disk format
-> are being built and are not yet frozen. There are no releases and no stable
-> vault format. Do not put real passwords in it yet.
+> **Status: working, but pre-release.** The command line, the agent, and the MCP server all
+> function — you can create a vault, store and retrieve passwords, import from another
+> manager, and give an AI agent scoped access. The on-disk format is **not yet frozen** and
+> there are no signed releases, so a future version may not open a vault you create today.
+> Do not put passwords you cannot afford to lose in it yet.
 
 ## What Keel is
 
