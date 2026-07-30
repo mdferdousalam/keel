@@ -232,6 +232,13 @@ enum Command {
     /// List the access grants currently in force.
     Grants,
 
+    /// Report which stored passwords are reused, weak, or old.
+    ///
+    /// Decrypts every record to do it, so it is available only here and in the desktop
+    /// app — never to an AI agent or the browser extension, whatever they have been
+    /// granted. No password value is printed.
+    Audit,
+
     /// Revoke every grant held by a client.
     Revoke {
         /// Client identifier.
@@ -356,6 +363,7 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             shred,
         } => import(&mut client, file, *dry_run, *shred, cli.json),
         Command::Grants => grants(&mut client, cli.json),
+        Command::Audit => audit(&mut client, cli.json),
         Command::Revoke { client_id } => {
             client.request(&Request::RevokeAccess {
                 client_id: client_id.clone(),
@@ -540,6 +548,138 @@ fn grant(
 }
 
 /// List grants.
+/// Print the vault health report.
+///
+/// Ordered by what the user should fix first: reuse, then weakness, then age. That is
+/// deliberate — reuse is the finding that turns someone else's breach into your problem,
+/// and it is the one a strength meter cannot tell you about.
+fn audit(client: &mut Client, json: bool) -> Result<(), ClientError> {
+    let response = client.request(&Request::VaultHealth)?;
+    let Response::Health {
+        examined,
+        without_password,
+        unreadable,
+        reused,
+        weak,
+        stale,
+        flagged,
+    } = response
+    else {
+        return Err(ClientError::Unexpected("expected a health response".into()));
+    };
+
+    if json {
+        print_json(&serde_json::json!({
+            "examined": examined,
+            "without_password": without_password,
+            "unreadable": unreadable,
+            "flagged": flagged,
+            "reused": reused,
+            "weak": weak,
+            "stale": stale,
+        }));
+        return Ok(());
+    }
+
+    println!("Examined {examined} entr{}.", plural(examined));
+    if without_password > 0 {
+        println!("{without_password} store no password (a note, or a federated sign-in).");
+    }
+    if unreadable > 0 {
+        // Loud, because a clean-looking report over a partly unreadable vault would be
+        // actively misleading.
+        println!(
+            "\n  WARNING: {unreadable} record{} could not be decrypted and {} left out of \
+             this report.\n  The vault may be damaged; a backup may be available alongside it.",
+            if unreadable == 1 { "" } else { "s" },
+            if unreadable == 1 { "was" } else { "were" },
+        );
+    }
+
+    if !reused.is_empty() {
+        println!(
+            "\nReused passwords ({} group{}):",
+            reused.len(),
+            plural_s(reused.len())
+        );
+        println!("  A password shared between accounts turns any one site's breach into a");
+        println!("  compromise of all of them. Fix these first.");
+        for group in &reused {
+            println!();
+            for entry in group {
+                println!("    {}  ({})", entry.title, entry.username);
+            }
+        }
+    }
+
+    if !weak.is_empty() {
+        println!("\nWeak passwords ({}):", weak.len());
+        for entry in &weak {
+            println!(
+                "    {:<28}  ~{} bits  [{}]",
+                truncate(&entry.title, 28),
+                entry.bits,
+                entry.strength
+            );
+        }
+        println!("\n  \"~bits\" is a lower bound from the password's structure, not a guarantee.");
+    }
+
+    if !stale.is_empty() {
+        println!("\nUnchanged for over a year ({}):", stale.len());
+        for entry in &stale {
+            println!(
+                "    {:<28}  {} days",
+                truncate(&entry.title, 28),
+                entry.age_days
+            );
+        }
+        println!("\n  Age alone is not a problem. It matters most for passwords that are also");
+        println!("  weak or reused, and for accounts that predate your use of a manager.");
+    }
+
+    if flagged == 0 {
+        println!("\nNothing needs attention.");
+    } else {
+        println!(
+            "\n{flagged} of {examined} entr{} need attention.",
+            plural(flagged)
+        );
+        println!("Rotate one with:  keel rotate <name>");
+    }
+
+    Ok(())
+}
+
+/// "y" or "ies", for "entry"/"entries".
+const fn plural(n: usize) -> &'static str {
+    if n == 1 {
+        "y"
+    } else {
+        "ies"
+    }
+}
+
+/// "" or "s".
+const fn plural_s(n: usize) -> &'static str {
+    if n == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
+/// Shorten a title to fit a column, with an ellipsis when cut.
+fn truncate(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        return s.to_owned();
+    }
+    let keep = width.saturating_sub(1);
+    let mut out: String = s.chars().take(keep).collect();
+    out.push('…');
+    out
+}
+
 fn grants(client: &mut Client, json: bool) -> Result<(), ClientError> {
     let Response::Grants { grants } = client.request(&Request::ListGrants)? else {
         return Err(ClientError::Unexpected("expected a grants response".into()));

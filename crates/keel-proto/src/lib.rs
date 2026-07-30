@@ -352,6 +352,14 @@ pub enum Request {
         limit: Option<u32>,
     },
 
+    /// Assess the health of every stored password.
+    ///
+    /// Only a human-driven client may send this. Producing the report decrypts every
+    /// record, and "which of these entries share a password?" answered across the whole
+    /// vault is a bulk oracle — exactly what the automated-client tool surface withholds.
+    /// The agent enforces that; there is no scope or grant that reaches it.
+    VaultHealth,
+
     /// Grant an automated client a set of capabilities.
     ///
     /// Only a human-driven client (the GUI or the CLI) may send this: an agent granting itself
@@ -562,6 +570,28 @@ pub enum Response {
         chain_broken: bool,
     },
 
+    /// A vault health report.
+    ///
+    /// Carries counts, entry titles, and entropy estimates. It carries **no password
+    /// value and nothing derived from one** — reuse is reported as "these entries match",
+    /// never as what they match on.
+    Health {
+        /// Entries examined.
+        examined: usize,
+        /// Entries that stored no password at all.
+        without_password: usize,
+        /// Entries whose record could not be decrypted.
+        unreadable: usize,
+        /// Groups of entries sharing a password, largest first.
+        reused: Vec<Vec<HealthEntry>>,
+        /// Entries below the weak threshold, weakest first.
+        weak: Vec<HealthEntry>,
+        /// Entries whose password is older than the staleness threshold, oldest first.
+        stale: Vec<HealthEntry>,
+        /// Distinct entries flagged for any reason.
+        flagged: usize,
+    },
+
     /// The request needs human approval.
     ///
     /// The client should wait; the agent resolves it through the GUI. Carries no secret.
@@ -594,6 +624,31 @@ pub struct GrantSummary {
     pub expires_at: u64,
     /// Remaining operations before the grant is spent.
     pub uses_remaining: u32,
+}
+
+/// One entry in a health report.
+///
+/// Note what is absent: any field that carries or is derived from the password itself.
+/// `bits` is a coarse rounded estimate, and `shared_with` is a count of matching
+/// entries — neither narrows down the value. A `password` field must never be added
+/// here; the whole point of the health report is that it answers questions about
+/// secrets without moving them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HealthEntry {
+    /// Opaque handle for this entry, valid for this session.
+    pub reference: EntryRef,
+    /// Display title.
+    pub title: String,
+    /// Username, to disambiguate several entries for one site.
+    pub username: String,
+    /// Estimated entropy in whole bits. A structural lower bound, not a guarantee.
+    pub bits: u32,
+    /// `critical`, `weak`, or `reasonable`.
+    pub strength: String,
+    /// Days since the password last changed.
+    pub age_days: u64,
+    /// How many other entries share this password. Zero when unique.
+    pub shared_with: usize,
 }
 
 /// One audit record, rendered for display.

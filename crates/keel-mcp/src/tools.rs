@@ -500,6 +500,16 @@ pub fn render(name: &str, response: &Response) -> ToolResult {
              done by the user with `keel grant`, not by an agent.",
         ),
 
+        // Nor a health report. It decrypts every record and answers "which of these
+        // entries share a password?" across the whole vault, which is a bulk oracle over
+        // exactly the data this tool surface exists to keep an agent away from. There is
+        // no tool for it, and the agent refuses it to any client a human is not driving —
+        // so this arm is unreachable, and says so instead of rendering the report.
+        Response::Health { .. } => ToolResult::failure(
+            "Keel returned a vault health report, which no tool here requests. Reviewing \
+             which passwords are weak or reused is done by the user with `keel audit`.",
+        ),
+
         Response::Hello { .. } => ToolResult::text("Connected."),
 
         Response::Error { code, message } => {

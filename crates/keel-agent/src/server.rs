@@ -273,6 +273,7 @@ impl Session {
             }
             Request::Save => self.handle_save(&client),
             Request::AuditTail { limit } => self.handle_audit_tail(&client, limit),
+            Request::VaultHealth => self.handle_vault_health(&client),
             Request::GrantAccess {
                 client_id,
                 scopes,
@@ -721,6 +722,81 @@ impl Session {
         })
     }
 
+    /// Assess every stored password.
+    ///
+    /// The most secret-exposing operation the agent performs: it decrypts every record
+    /// in the vault. Three things keep that acceptable.
+    ///
+    /// The policy engine refuses it outright to anything a human is not driving, checked
+    /// before scopes so no grant can reach it. The decrypted bodies live in one local
+    /// vector that is dropped — and therefore wiped, `RecordBody` being
+    /// `ZeroizeOnDrop` — before the response is built. And the response type carries no
+    /// field that could hold a password, so the assessment cannot leak one even by
+    /// mistake.
+    ///
+    /// A record that fails to decrypt is counted rather than fatal. A damaged vault
+    /// should still get a report on the entries that are readable, with the damage
+    /// stated, rather than no report at all.
+    fn handle_vault_health(&mut self, client: &Client) -> Result<Response> {
+        self.authorize(client, &Operation::VaultHealth, None)?;
+
+        let mut state = self.lock_state()?;
+        state.touch();
+
+        // Metadata is cloned up front because handles are allocated later through a
+        // mutable borrow of the same state.
+        let metas: Vec<keel_format::manifest::EntryMeta> = state.vault()?.entries().to_vec();
+
+        let mut unreadable = 0usize;
+        let mut bodies: Vec<(usize, RecordBody)> = Vec::with_capacity(metas.len());
+        for (index, meta) in metas.iter().enumerate() {
+            match state.vault()?.reveal(&meta.record_id) {
+                Ok(body) => bodies.push((index, body)),
+                // Nothing here names the entry: a decryption failure is reported as a
+                // count, and the audit log already records that a health check ran.
+                Err(_) => unreadable += 1,
+            }
+        }
+
+        let candidates: Vec<keel_core::health::Candidate<'_>> = bodies
+            .iter()
+            .filter_map(|(index, body)| {
+                metas.get(*index).map(|meta| keel_core::health::Candidate {
+                    meta,
+                    password: Some(body.password.as_str()),
+                })
+            })
+            .collect();
+
+        let mut report = keel_core::health::assess(&candidates, crate::state::now());
+        report.unreadable = unreadable;
+        // Wipe the plaintext before doing anything else. `RecordBody` zeroizes on drop,
+        // and `candidates` borrows from `bodies`, so both go here together.
+        drop(candidates);
+        drop(bodies);
+
+        let flagged = report.flagged();
+        let mut reused = Vec::with_capacity(report.reused.len());
+        for group in &report.reused {
+            reused.push(health_entries(&mut state, &group.entries)?);
+        }
+        let weak = health_entries(&mut state, &report.weak)?;
+        let stale = health_entries(&mut state, &report.stale)?;
+
+        state.audit(client, "vault_health", None, Outcome::Allowed, None);
+        state.flush_audit();
+
+        Ok(Response::Health {
+            examined: report.examined,
+            without_password: report.without_password,
+            unreadable: report.unreadable,
+            reused,
+            weak,
+            stale,
+            flagged,
+        })
+    }
+
     /// Issue a grant to another client.
     ///
     /// Restricted to human-driven clients. An agent that could grant itself scopes would make
@@ -1009,6 +1085,30 @@ fn field_value(body: &RecordBody, field: Field) -> Result<String> {
             .clone()
             .ok_or_else(|| Failure::new(ErrorCode::NotFound, "this entry has no TOTP secret")),
     }
+}
+
+/// Render health assessments for the wire, allocating a session handle for each.
+///
+/// Handles rather than raw ids, for the same reason every other response uses them: a
+/// transcript containing one is useless after the vault locks.
+fn health_entries(
+    state: &mut AgentState,
+    entries: &[keel_core::health::EntryHealth],
+) -> Result<Vec<keel_proto::HealthEntry>> {
+    entries
+        .iter()
+        .map(|entry| {
+            Ok(keel_proto::HealthEntry {
+                reference: state.handle_for(&entry.id)?,
+                title: entry.title.clone(),
+                username: entry.username.clone(),
+                bits: entry.bits,
+                strength: entry.strength.label().to_owned(),
+                age_days: entry.age_days,
+                shared_with: entry.shared_with,
+            })
+        })
+        .collect()
 }
 
 /// Produce the value for a new or rotated secret.

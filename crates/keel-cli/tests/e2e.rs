@@ -523,3 +523,77 @@ fn write_stdin(mut command: Command, input: &str) -> Output {
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
+
+#[test]
+fn the_health_report_finds_reuse_and_weakness_without_printing_a_password() {
+    // Exercises the whole chain: the CLI asks, the agent decrypts every record, the
+    // assessment groups by keyed hash, and only statistics come back. The canary is
+    // the point — this is the operation with the widest exposure to plaintext, so the
+    // test asserts on what came out, not only on what was found.
+    const SHARED: &str = "canary-shared-Zq7-mV4xKp";
+    let fixture = Fixture::new();
+    fixture.init();
+
+    for title in ["Old Forum", "Old Wiki"] {
+        let mut add = fixture.keel();
+        add.args(["add", title, "--username", "ada", "--password-stdin"]);
+        let output = write_stdin(add, SHARED);
+        assert!(output.status.success(), "add failed: {}", stderr(&output));
+    }
+    let mut add = fixture.keel();
+    add.args(["add", "Router", "--username", "admin", "--password-stdin"]);
+    let output = write_stdin(add, "123456");
+    assert!(output.status.success(), "add failed: {}", stderr(&output));
+    // One entry with a generated password, which must not be flagged.
+    fixture.ok(&["add", "Bank", "--username", "ada"]);
+
+    let report = fixture.ok(&["audit"]);
+
+    // The reuse group is the finding that matters most.
+    assert!(
+        report.contains("Reused passwords"),
+        "should report reuse: {report}"
+    );
+    assert!(report.contains("Old Forum") && report.contains("Old Wiki"));
+    // The weak one is found too.
+    assert!(report.contains("Router"), "should flag 123456: {report}");
+    // The generated password is not flagged.
+    assert!(
+        !report.contains("Bank"),
+        "a generated password should not be flagged: {report}"
+    );
+    assert!(
+        report.contains("3 of 4 entries need attention"),
+        "got: {report}"
+    );
+
+    // And the thing that would make all of the above worthless.
+    assert!(
+        !report.contains(SHARED) && !report.contains("canary") && !report.contains("123456"),
+        "the health report printed a password value: {report}"
+    );
+}
+
+#[test]
+fn the_health_report_is_machine_readable_and_carries_no_password_field() {
+    const SHARED: &str = "canary-shared-Zq7-mV4xKp";
+    let fixture = Fixture::new();
+    fixture.init();
+    for title in ["A", "B"] {
+        let mut add = fixture.keel();
+        add.args(["add", title, "--username", "ada", "--password-stdin"]);
+        let output = write_stdin(add, SHARED);
+        assert!(output.status.success(), "add failed: {}", stderr(&output));
+    }
+
+    let json = fixture.ok(&["audit", "--json"]);
+    assert!(!json.contains("canary"), "JSON leaked the password: {json}");
+    // A `password` key must never appear. Checked as a string rather than by parsing,
+    // so it catches the value appearing anywhere at any nesting depth.
+    assert!(
+        !json.contains("\"password\""),
+        "the health report grew a password field: {json}"
+    );
+    assert!(json.contains("\"reused\""), "got: {json}");
+    assert!(json.contains("\"examined\": 2"), "got: {json}");
+}

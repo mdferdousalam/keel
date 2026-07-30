@@ -266,6 +266,16 @@ pub enum Operation {
     ReadAudit,
     /// Generate a password. Needs no vault access at all.
     GeneratePassword,
+    /// Assess the health of every stored password.
+    ///
+    /// Uniquely bulk: producing the report decrypts every record in the vault. It
+    /// returns statistics rather than values, but "which of these entries share a
+    /// password?" answered over the whole vault is still a bulk oracle, and it is
+    /// exactly the shape of question the tool surface is built to withhold from
+    /// automated clients. So this is not gated by a scope that a grant could supply
+    /// — it is restricted to human-driven clients outright. See
+    /// [`Operation::requires_human_client`].
+    VaultHealth,
 }
 
 impl Operation {
@@ -275,7 +285,9 @@ impl Operation {
         match self {
             // Status reports lock state; generation is fresh randomness. Neither reads
             // vault data, so neither needs a scope.
-            Self::Status | Self::GeneratePassword => None,
+            // VaultHealth is deliberately not scope-gated: no grant can confer it,
+            // because it is refused by client type before scopes are consulted.
+            Self::Status | Self::GeneratePassword | Self::VaultHealth => None,
             Self::Search { .. } | Self::ReadMetadata { .. } => Some(Scope::MetadataRead),
             Self::UseSecret { .. } => Some(Scope::SecretUse),
             Self::RevealSecret { .. } => Some(Scope::SecretReveal),
@@ -283,6 +295,17 @@ impl Operation {
             Self::Write { .. } => Some(Scope::EntryWrite),
             Self::ReadAudit => Some(Scope::AuditRead),
         }
+    }
+
+    /// Whether this operation may only be performed by a client a human is driving.
+    ///
+    /// Separate from the scope system on purpose. A scope is something a user can
+    /// grant, and the whole point here is that this is not grantable to an automated
+    /// client at all — there is no combination of approvals that lets an MCP server
+    /// or a browser extension enumerate which passwords are shared.
+    #[must_use]
+    pub const fn requires_human_client(&self) -> bool {
+        matches!(self, Self::VaultHealth)
     }
 
     /// The entry this operation concerns, if any.
@@ -311,6 +334,7 @@ impl Operation {
             Self::Write { .. } => "write",
             Self::ReadAudit => "read_audit",
             Self::GeneratePassword => "generate_password",
+            Self::VaultHealth => "vault_health",
         }
     }
 }
@@ -860,6 +884,15 @@ impl PolicyEngine {
             return Decision::Allow;
         }
 
+        // Checked before scopes, so no grant can route around it.
+        if operation.requires_human_client() && !client.client_type.is_human_driven() {
+            return Decision::deny(format!(
+                "the {} cannot run a vault health check; it decrypts every record, so \
+                 it is available only from the Keel app or the command line",
+                client.client_type.name()
+            ));
+        }
+
         if let Operation::Search { query_len } = operation {
             if *query_len < MIN_SEARCH_CHARS {
                 return Decision::deny(format!(
@@ -1127,6 +1160,68 @@ mod tests {
 
     const NOW: u64 = 1_700_000_000;
     const ENTRY: Id = [1; 16];
+
+    #[test]
+    fn a_vault_health_check_is_refused_to_automated_clients() {
+        // The report decrypts every record and answers "which entries share a
+        // password?" over the whole vault. That is a bulk oracle, and no approval
+        // should be able to hand it to something a human is not driving.
+        for client_type in [ClientType::Mcp, ClientType::Extension] {
+            let mut engine = PolicyEngine::new();
+            let decision = engine.check(&client(client_type), &Operation::VaultHealth, &[], 0);
+            assert!(
+                matches!(decision, Decision::Deny { .. }),
+                "{client_type:?} should be refused, got {decision:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vault_health_check_is_allowed_from_the_app_and_the_command_line() {
+        for client_type in [ClientType::Gui, ClientType::Cli] {
+            let mut engine = PolicyEngine::new();
+            assert_eq!(
+                engine.check(&client(client_type), &Operation::VaultHealth, &[], 0),
+                Decision::Allow,
+                "{client_type:?} should be allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn no_grant_can_confer_a_vault_health_check() {
+        // The gate is checked before scopes precisely so that granting an agent
+        // everything still does not reach it. If this ever fails, the check has been
+        // moved below scope resolution.
+        let mut engine = PolicyEngine::new();
+        let mcp = client(ClientType::Mcp);
+        engine.add_grant(Grant {
+            id: [9u8; 16],
+            client_id: mcp.id.clone(),
+            scopes: [
+                Scope::MetadataRead,
+                Scope::SecretUse,
+                Scope::SecretReveal,
+                Scope::EntryWrite,
+                Scope::TotpRead,
+                Scope::AuditRead,
+            ]
+            .into_iter()
+            .collect(),
+            filter: EntryFilter::All,
+            expires_at: 10_000,
+            max_reveals: u32::MAX,
+            reveals_used: 0,
+            max_uses: u32::MAX,
+            uses_used: 0,
+            reason_shown: "everything".to_owned(),
+        });
+        let decision = engine.check(&mcp, &Operation::VaultHealth, &[], 0);
+        assert!(
+            matches!(decision, Decision::Deny { .. }),
+            "a grant of every scope must still not reach a health check, got {decision:?}"
+        );
+    }
 
     fn client(client_type: ClientType) -> Client {
         Client {

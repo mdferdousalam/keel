@@ -75,6 +75,7 @@ pub mod error;
 pub mod generator;
 pub mod kdf;
 pub mod secret;
+pub mod strength;
 pub mod subkeys;
 
 pub use error::{Error, Result};
@@ -90,6 +91,8 @@ pub use kdf::{
     calibrate, derive_kek, derive_kek_from_factors, hash_keyfile, mix_factors, Argon2Params,
     Calibration, Factors, KdfTier, KDF_ID_ARGON2ID_V13, SALT_LEN,
 };
+pub use strength::{estimate_bits, Strength, CRITICAL_BITS, WEAK_BITS};
+
 pub use secret::{
     fill_random, install_page_locker, page_lock_degraded, Key256, PageLocker, SecretBytes,
     SecretString, MAX_PASSPHRASE_LEN,
