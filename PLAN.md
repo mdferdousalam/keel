@@ -60,7 +60,12 @@ Bugs that the plan did not anticipate and that only appeared under test:
    rate. The hazard was documented in a neighbouring test and not applied.
 5. **The audit log was created 0644** by umask. Encrypted, so no content leaked, but its
    size tracks how many operations the user performed.
-6. **The exhaustive `match` on `Response` in keel-mcp caught three omissions** as response
+6. **`audit_tail` is not exposed as an MCP tool**, though §7.2 contemplated it under an
+   `audit:read` scope. Open decision rather than an oversight: the log reveals which entries
+   were touched and when, which is a usage pattern worth thinking about before handing it to
+   an agent, and `keel log` now covers the user's own need. The rogue-agent test deliberately
+   does not assert either way.
+7. **The exhaustive `match` on `Response` in keel-mcp caught three omissions** as response
    variants were added, each time forcing a deliberate decision about whether an agent
    should see the new data. Worth preserving as a design property rather than adding a
    catch-all arm.

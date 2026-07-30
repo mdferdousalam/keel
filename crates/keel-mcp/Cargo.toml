@@ -35,3 +35,6 @@ keel-client = { path = "../keel-client" }
 keel-proto = { path = "../keel-proto" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

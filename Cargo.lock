@@ -726,6 +726,7 @@ dependencies = [
  "keel-proto",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
