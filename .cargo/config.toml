@@ -1,0 +1,14 @@
+# Strip absolute paths from binaries so builds do not depend on where the
+# source tree happens to live. Required for reproducible builds; also avoids
+# leaking the maintainer's directory layout into shipped artifacts.
+#
+# Note: release CI sets these via RUSTFLAGS with the real paths. These local
+# values keep dev builds closer to release builds.
+[build]
+rustflags = ["--remap-path-prefix", "/Users=/redacted-home"]
+
+[alias]
+xtask = "run --package xtask --"
+# Convenience aliases matching the CI gates, so contributors can run the same
+# checks locally before pushing.
+lint = "clippy --workspace --all-targets --locked -- -D warnings"

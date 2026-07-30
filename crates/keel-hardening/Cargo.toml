@@ -1,0 +1,34 @@
+[package]
+name = "keel-hardening"
+description = "Process hardening for Keel: page locking, core-dump suppression, anti-debug, panic wipe."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# NOTE: this is the ONLY crate in the workspace that may use `unsafe`. It exists
+# so that every raw platform call in the project lives behind one auditable
+# boundary. The workspace lint table forbids unsafe everywhere else.
+[lints.rust]
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "warn"
+
+[dependencies]
+keel-crypto = { path = "../keel-crypto" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Threading",
+] }

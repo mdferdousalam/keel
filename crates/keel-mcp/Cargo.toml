@@ -1,0 +1,19 @@
+[package]
+name = "keel-mcp"
+description = "Keel MCP server: exposes scoped vault operations to AI agents."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "keel-mcp"
+path = "src/main.rs"
+
+[dependencies]
+

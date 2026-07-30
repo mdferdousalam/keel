@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default. Any job needing more escalates locally.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail on warnings in CI while keeping local builds pleasant.
+  RUSTFLAGS: "-D warnings"
+  CARGO_INCREMENTAL: 0
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Format and clippy
+    runs-on: ubuntu-latest
+    steps:
+      # All third-party actions are pinned to a full commit SHA, never a tag.
+      # A tag can be moved; a SHA cannot. Dependabot proposes updates, which are
+      # reviewed like any other dependency change.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: 1.93.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # All three supported platforms on every pull request. The vault format
+        # and the atomic-write path have real platform differences (directory
+        # fsync, rename semantics, path handling), so testing only Linux would
+        # miss exactly the bugs that corrupt someone's vault.
+        os: [ubuntu-latest, macos-14, windows-2022]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - name: Build
+        run: cargo build --workspace --locked
+      - name: Test
+        run: cargo test --workspace --locked
+
+  gates:
+    name: Architectural gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # These two checks enforce claims the threat model makes:
+      #   - clients cannot link the cryptographic core
+      #   - no HTTP/TLS stack is reachable from the vault core
+      # A claim enforced only by discipline is not enforced.
+      - name: Dependency layering
+        run: cargo xtask check-layering
+      - name: Network isolation
+        run: cargo xtask check-network
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: EmbarkStudios/cargo-deny-action@30f817c6f72275c6d54dc744fbca09ebc958599f # v2.0.16
+        with:
+          command: check advisories bans licenses sources
+
+  # The vault format parser is the only code in the project that reads fully
+  # attacker-controlled bytes, so a panic there is a denial-of-service bug rather
+  # than a robustness nit. A short smoke run on every pull request catches
+  # regressions; fuzz.yml runs the long sessions nightly.
+  fuzz-smoke:
+    name: Fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - name: Skip if no fuzz targets yet
+        id: check
+        run: |
+          if [ -d fuzz/fuzz_targets ] && [ -n "$(ls -A fuzz/fuzz_targets 2>/dev/null)" ]; then
+            echo "have_targets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_targets=false" >> "$GITHUB_OUTPUT"
+            echo "No fuzz targets present yet; skipping."
+          fi
+      - name: Install cargo-fuzz
+        if: steps.check.outputs.have_targets == 'true'
+        run: cargo install cargo-fuzz --locked
+      - name: Run each target briefly
+        if: steps.check.outputs.have_targets == 'true'
+        run: |
+          for target in fuzz/fuzz_targets/*.rs; do
+            name="$(basename "$target" .rs)"
+            echo "::group::fuzz $name"
+            cargo fuzz run "$name" -- -max_total_time=60 -rss_limit_mb=4096
+            echo "::endgroup::"
+          done
+
+  # A single required check for branch protection, so adding a job above does not
+  # mean editing the protection rules.
+  ci-success:
+    name: CI
+    if: always()
+    needs: [lint, test, gates, deny, fuzz-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One or more CI jobs failed."
+          exit 1
+      - run: echo "All CI jobs passed."

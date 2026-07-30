@@ -1,0 +1,19 @@
+[package]
+name = "keel-agent"
+description = "Keel agent daemon: the only process that holds unlocked vault keys."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "keel-agent"
+path = "src/main.rs"
+
+[dependencies]
+

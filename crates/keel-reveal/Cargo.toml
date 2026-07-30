@@ -1,0 +1,19 @@
+[package]
+name = "keel-reveal"
+description = "Keel native reveal overlay: renders one secret outside any webview."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "keel-reveal"
+path = "src/main.rs"
+
+[dependencies]
+

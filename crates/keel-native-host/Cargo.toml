@@ -1,0 +1,19 @@
+[package]
+name = "keel-native-host"
+description = "Keel browser native-messaging host. A dumb pipe to the agent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "keel-native-host"
+path = "src/main.rs"
+
+[dependencies]
+

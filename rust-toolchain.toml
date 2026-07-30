@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned exactly. Reproducible builds require the compiler to be a fixed input,
+# not "whatever is current". Bumping this is a deliberate, reviewed change.
+channel = "1.93.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

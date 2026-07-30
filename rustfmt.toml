@@ -1,0 +1,5 @@
+# Defaults, with a slightly wider limit: the security-relevant code has long
+# domain-separation constants and long test names, and wrapping those hurts
+# readability more than the extra columns cost.
+max_width = 100
+edition = "2021"

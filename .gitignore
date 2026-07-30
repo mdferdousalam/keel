@@ -1,0 +1,36 @@
+/target
+**/target
+Cargo.lock.bak
+
+# Node / extension / Tauri UI
+node_modules/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+
+# Fuzzing
+fuzz/target
+fuzz/corpus
+fuzz/artifacts
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --------------------------------------------------------------------------
+# Never commit anything that could hold real secrets. These patterns exist so
+# a stray test artifact cannot become a published credential leak.
+# --------------------------------------------------------------------------
+*.keel
+*.keel.bak.*
+*.keel.tmp.*
+*.keel.lock
+vault.state
+*.minisig
+*.mldsa.sig
+# Release signing keys must live offline, never in the repo.
+*.key
+secret.key
+minisign.key

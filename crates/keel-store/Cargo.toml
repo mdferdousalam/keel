@@ -1,0 +1,22 @@
+[package]
+name = "keel-store"
+description = "Keel vault file I/O: atomic writes, advisory locking, backup rotation, OS paths."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+keel-format = { path = "../keel-format" }
+directories = { workspace = true }
+fd-lock = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,24 @@
+# Every change needs maintainer review, but the paths below are the ones where a
+# mistake is a vulnerability rather than a bug. Listing them separately makes that
+# visible in the pull request UI and prevents a drive-by merge.
+
+*                           @keel-vault/maintainers
+
+# The cryptographic core and the on-disk format: a mistake here is
+# unrecoverable for anyone who already saved a vault.
+/crates/keel-crypto/        @keel-vault/maintainers
+/crates/keel-format/        @keel-vault/maintainers
+
+# The only crate permitted `unsafe`.
+/crates/keel-hardening/     @keel-vault/maintainers
+
+# The only process that holds unlocked keys, plus the policy chokepoint.
+/crates/keel-agent/         @keel-vault/maintainers
+/crates/keel-core/          @keel-vault/maintainers
+
+# Editing these edits a security boundary that CI enforces.
+/xtask/src/rules.rs         @keel-vault/maintainers
+/deny.toml                  @keel-vault/maintainers
+
+# Release integrity: the signing and provenance flow.
+/.github/workflows/         @keel-vault/maintainers

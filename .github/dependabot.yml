@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs, so Dependabot is how those pins get
+  # reviewed and advanced rather than left to rot.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    # Grouped so routine patch bumps arrive as one reviewable pull request, while
+    # anything touching the cryptographic dependencies stays separate and gets
+    # read properly.
+    groups:
+      cargo-patch:
+        update-types: ["patch"]
+        exclude-patterns:
+          - "argon2"
+          - "chacha20poly1305"
+          - "hkdf"
+          - "sha2"
+          - "blake3"
+          - "zeroize"
+          - "subtle"
+          - "secrecy"
+          - "getrandom"
+    open-pull-requests-limit: 5

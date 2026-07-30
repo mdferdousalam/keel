@@ -1,0 +1,15 @@
+[package]
+name = "keel-client"
+description = "Keel client library: connect-or-spawn the agent. Holds no key material."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+keel-proto = { path = "../keel-proto" }
