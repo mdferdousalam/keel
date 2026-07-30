@@ -7,23 +7,63 @@
 | 0 — Skeleton, CI, gates, docs | **Done** | Both architectural gates verified to fail when violated |
 | 1 — keel-crypto, keel-format, keel-hardening | **Done** | ~35M fuzz executions, zero crashes |
 | 2 — keel-store, keel-core | **Done** | Crash safety verified by SIGKILL; policy engine complete |
-| 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Works end to end; 18 e2e tests |
+| 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Complete CLI surface; clipboard, audit log reader, health report, export |
 | 3 — keel-reveal | Not started | Native non-capturable overlay for plaintext display |
-| 4 — Tauri desktop GUI | Not started | |
-| 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects, `keel import` |
+| 4 — Tauri desktop GUI | Not started | Blocks approval dialogs, and therefore `reveal_secret` for AI clients |
+| 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects |
 | 5 — Browser extension | Not started | Native host, MV3 extension, SAS pairing |
 | 6 — MCP server | **Done** | Verified: a fully-granted agent still cannot obtain a password |
-| 7 — Release pipeline | **Mostly done** | Workflows, `verify-release`, VERIFY/REPRODUCE docs. Signing keys not yet generated; packaging configs (Homebrew/Scoop/AUR) not written. |
+| 7 — Release pipeline | **Mostly done** | Workflows, `verify-release`, VERIFY/REPRODUCE docs. Signing keys not generated; packaging configs not written. |
 
-**Currently working:** `keel init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
-`get`, `rotate`, `rm`, `generate`, `save`, `import`, `grant`, `grants`, `revoke`,
-`verify-release`, with `--json` throughout. Plus `keel-mcp`, a working MCP server for AI
-agents. 393 unit tests plus 18 end-to-end; clippy clean under `-D warnings`.
+**Working:** `init`, `unlock`, `lock`, `status`, `list`, `search`, `add`, `get`, `rotate`,
+`rm`, `generate`, `save`, `import`, `export`, `audit`, `log`, `grant`, `grants`, `revoke`,
+`verify-release`, with `--json` throughout. Plus `keel-mcp`. **497 tests**, clippy clean
+under `-D warnings`, both gates passing.
 
-**Not working yet, deliberately loud about it:** clipboard and synthetic typing need the
-desktop app and fail with a clear message rather than pretending; `export` and `audit` are
-unimplemented; Windows needs a named-pipe transport that is not written; release signing keys
-have not been generated, so `verify-release` refuses rather than pretending to check.
+The CLI surface from §11 is complete except `keel agent --foreground` details and
+`setup-browser`, which belongs with the extension.
+
+**Not working, deliberately loud about it:**
+
+- **Typing into the focused window.** Needs a check that the window receiving keystrokes is
+  the one the user was shown. Without it, typing is worse than the clipboard: it delivers
+  the secret to whatever took focus and leaves no trace. Refuses and points at the
+  clipboard.
+- **Browser fill.** Needs the extension.
+- **`reveal_secret` for AI clients.** Needs a window to ask in, so it fails closed.
+- **Windows.** Needs the named-pipe transport with a current-user-only DACL.
+- **`--vault <path>`** from §11 was never added; the vault path comes from `KEEL_VAULT` or
+  the agent's argv. Worth adding for the documented CLI to match reality.
+- **`keel audit`'s breach check.** The offline Bloom filter of ~10M breached passwords is
+  not built. The strength estimator recognises structure and ~300 famous passwords, and
+  says so rather than implying corpus coverage.
+
+## Findings from implementation worth keeping
+
+Bugs that the plan did not anticipate and that only appeared under test:
+
+1. **The audit chain broke on every lock/unlock.** `AuditLog::new` restarts at sequence 1,
+   so a second session appended records numbered from 1 onto an existing chain. Normal daily
+   use would have reported tampering — an integrity check that cries wolf is worse than
+   none, because it trains people to ignore the one alert that matters. Fixed with
+   `AuditLog::resume`.
+2. **Deleting records from the end of the audit log was undetectable.** Any prefix of a hash
+   chain is a valid chain. Fixed with an anchor in the authenticated manifest, committing to
+   the expected count *and* tip — the tip matters because a rebuilt tail of the same length
+   would otherwise pass. Residual limit, now documented in the threat model: the anchor is
+   refreshed on save, so it is a floor, and an attacker can erase the tail of a session but
+   not the history of one.
+3. **The AAD design bug** described below, which would have made passphrase changes
+   O(vault size) and destroyed the reason for the KEK/VMK split.
+4. **Two identical flaky tests** counted passphrase words by splitting on `-`, which is both
+   the default separator and a character inside four EFF wordlist entries. ~0.3% failure
+   rate. The hazard was documented in a neighbouring test and not applied.
+5. **The audit log was created 0644** by umask. Encrypted, so no content leaked, but its
+   size tracks how many operations the user performed.
+6. **The exhaustive `match` on `Response` in keel-mcp caught three omissions** as response
+   variants were added, each time forcing a deliberate decision about whether an agent
+   should see the new data. Worth preserving as a design property rather than adding a
+   catch-all arm.
 
 ## Decisions that changed during implementation
 

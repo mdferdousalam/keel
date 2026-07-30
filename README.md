@@ -136,6 +136,17 @@ keel audit          # which stored passwords are reused, weak, or old
 keel log            # recent vault activity, with the audit chain verified
 ```
 
+Leaving is supported, because a password manager you cannot get your data out of is a
+trap:
+
+```sh
+keel export --format csv --output ~/keel-export.csv   # asks for your passphrase again
+```
+
+`keel export` requires the master passphrase even though the vault is unlocked, writes
+the file owner-only, refuses to overwrite anything, and records the attempt — successful
+or not — in the audit log.
+
 `keel audit` decrypts every record to do its work, so it is available only from the
 command line and the desktop app — never to an AI agent or the browser extension,
 whatever they have been granted. It prints no password values. `keel log` reports
@@ -186,15 +197,19 @@ Dependency direction is enforced by `cargo xtask check-layering`; see
 
 Stated so nothing here is mistaken for a bug:
 
-- **The desktop app and browser extension.** Because of that, `keel get` without `--show`
-  reports that it needs the desktop app rather than silently doing nothing — a user who
-  believes a password was copied and then pastes stale clipboard contents into a login form
-  has been actively misled.
+- **The desktop app and browser extension.** The command line and the MCP server are
+  complete, so nothing is blocked on them — but approval dialogs for AI requests need a
+  window, which means `reveal_secret` has no way to ask you and fails closed until the app
+  exists. Copying to the clipboard does work: the agent does it directly, since it is
+  already the process holding the secret.
+- **Typing a secret into the focused window.** Refused rather than approximated: without a
+  check that the window receiving the keystrokes is the one you were shown, typing is
+  strictly worse than the clipboard, because it delivers the password to whatever grabbed
+  focus in the meantime and leaves no trace.
 - **Windows.** The agent needs a named-pipe transport with a current-user-only DACL, and that
   is not written. macOS and Linux work.
 - **Signed releases.** No signing keys exist yet, so `keel verify-release` refuses rather than
   pretending to verify anything.
-- **`keel export`.**
 
 ## Licence
 

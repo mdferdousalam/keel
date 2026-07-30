@@ -448,6 +448,18 @@ impl AgentState {
         self.vault_mut()?.save().map_err(|e| Failure::from_core(&e))
     }
 
+    /// Check a re-entered passphrase against the open vault.
+    ///
+    /// Note what this does *not* do: it neither unlocks nor re-locks anything, and a wrong
+    /// answer changes no state. It only answers "is the person asking the one who knows the
+    /// passphrase?", which is the question an export needs settled.
+    pub fn verify_passphrase(&self, passphrase: &str) -> Result<bool> {
+        let factors = build_factors(passphrase, None)?;
+        self.vault()?
+            .verify_factors(&factors)
+            .map_err(|e| Failure::from_core(&e))
+    }
+
     /// The audit anchor the vault last committed to.
     #[must_use]
     pub fn audit_anchor(&self) -> Option<keel_format::manifest::AuditAnchor> {

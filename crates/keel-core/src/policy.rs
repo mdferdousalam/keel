@@ -276,6 +276,18 @@ pub enum Operation {
     /// — it is restricted to human-driven clients outright. See
     /// [`Operation::requires_human_client`].
     VaultHealth,
+    /// Export every secret in the vault as plaintext.
+    ///
+    /// The most dangerous operation Keel has: it produces, in one place, exactly the file
+    /// an attacker would want. It exists anyway, because a password manager you cannot get
+    /// your data out of is a trap, and the alternative to a supported export is users
+    /// screenshotting their passwords one at a time.
+    ///
+    /// Restricted to human-driven clients, like [`Self::VaultHealth`], and additionally
+    /// gated on re-entering the master passphrase — which the agent enforces, since an
+    /// unlocked vault only proves somebody unlocked it, not that the owner is at the
+    /// keyboard now.
+    ExportVault,
 }
 
 impl Operation {
@@ -287,7 +299,7 @@ impl Operation {
             // vault data, so neither needs a scope.
             // VaultHealth is deliberately not scope-gated: no grant can confer it,
             // because it is refused by client type before scopes are consulted.
-            Self::Status | Self::GeneratePassword | Self::VaultHealth => None,
+            Self::Status | Self::GeneratePassword | Self::VaultHealth | Self::ExportVault => None,
             Self::Search { .. } | Self::ReadMetadata { .. } => Some(Scope::MetadataRead),
             Self::UseSecret { .. } => Some(Scope::SecretUse),
             Self::RevealSecret { .. } => Some(Scope::SecretReveal),
@@ -305,7 +317,7 @@ impl Operation {
     /// or a browser extension enumerate which passwords are shared.
     #[must_use]
     pub const fn requires_human_client(&self) -> bool {
-        matches!(self, Self::VaultHealth)
+        matches!(self, Self::VaultHealth | Self::ExportVault)
     }
 
     /// The entry this operation concerns, if any.
@@ -335,6 +347,7 @@ impl Operation {
             Self::ReadAudit => "read_audit",
             Self::GeneratePassword => "generate_password",
             Self::VaultHealth => "vault_health",
+            Self::ExportVault => "export_vault",
         }
     }
 }
@@ -887,9 +900,10 @@ impl PolicyEngine {
         // Checked before scopes, so no grant can route around it.
         if operation.requires_human_client() && !client.client_type.is_human_driven() {
             return Decision::deny(format!(
-                "the {} cannot run a vault health check; it decrypts every record, so \
-                 it is available only from the Keel app or the command line",
-                client.client_type.name()
+                "the {} cannot perform {}; it reads every record, so it is available \
+                 only from the Keel app or the command line",
+                client.client_type.name(),
+                operation.label().replace('_', " ")
             ));
         }
 

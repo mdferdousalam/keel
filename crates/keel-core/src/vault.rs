@@ -410,6 +410,25 @@ impl UnlockedVault {
         &mut self.manifest.settings
     }
 
+    /// Confirm that `factors` are the ones this vault is currently locked with.
+    ///
+    /// Used to prove a human is present before an export. An unlocked vault only shows
+    /// that *somebody* unlocked it at some point in the last few minutes; re-entering the
+    /// passphrase is what distinguishes the owner from whatever else is running as them.
+    ///
+    /// Runs the full key derivation and decides by attempting the unwrap. There is no
+    /// cheap pre-check, so a wrong passphrase costs exactly what a real attempt costs, and
+    /// the answer is a plain bool because every failure mode — wrong passphrase, wrong
+    /// keyfile, tampered header — must be indistinguishable to the caller.
+    pub fn verify_factors(&self, factors: &UnlockFactors) -> Result<bool> {
+        let kek = factors.derive_kek(&self.header)?;
+        let Some(wrapped) = self.header.wrapped_key(self.header.vmk_epoch_current) else {
+            return Ok(false);
+        };
+        let aad = self.header.wrap_aad(self.header.vmk_epoch_current)?;
+        Ok(aead::open(&kek, &wrapped.nonce, &aad, &wrapped.ciphertext).is_ok())
+    }
+
     /// The audit anchor recorded at the last save.
     #[must_use]
     pub const fn audit_anchor(&self) -> Option<keel_format::manifest::AuditAnchor> {

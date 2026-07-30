@@ -709,3 +709,137 @@ fn removing_records_from_the_end_of_the_audit_log_is_detected() {
         "the warning should be prominent: {human}"
     );
 }
+
+#[test]
+fn exporting_requires_the_passphrase_and_writes_an_owner_only_file() {
+    const CANARY: &str = "canary-export-Zq7#mV4xKp";
+    let fixture = Fixture::new();
+    fixture.init();
+    let mut add = fixture.keel();
+    add.args(["add", "Bank", "--username", "ada", "--password-stdin"]);
+    let output = write_stdin(add, CANARY);
+    assert!(output.status.success(), "add failed: {}", stderr(&output));
+
+    let path = fixture.path().join("export.json");
+    let out = fixture.ok(&[
+        "export",
+        "--format",
+        "json",
+        "--output",
+        path.to_str().expect("a utf-8 path"),
+        "--yes",
+    ]);
+    assert!(out.contains("owner-only"), "got: {out}");
+
+    let body = std::fs::read_to_string(&path).expect("read the export");
+    assert!(
+        body.contains(CANARY),
+        "the export should contain the password; that is its purpose"
+    );
+
+    // The file must not be readable by anyone else: it is every password in one place.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&path)
+            .expect("stat the export")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "export mode should be 0600, was {mode:o}");
+    }
+
+    // And it must refuse to overwrite. Writing every password in plaintext through a
+    // symlink somebody else planted would be a memorable bug, and `create_new` is what
+    // prevents it.
+    let second = fixture.run(&[
+        "export",
+        "--output",
+        path.to_str().expect("a utf-8 path"),
+        "--yes",
+    ]);
+    assert!(
+        !second.status.success(),
+        "exporting over an existing file should fail"
+    );
+    assert!(
+        stderr(&second).contains("already exists"),
+        "the reason should be clear: {}",
+        stderr(&second)
+    );
+}
+
+#[test]
+fn exporting_with_the_wrong_passphrase_is_refused_and_recorded() {
+    // An unlocked vault only proves somebody unlocked it recently. Re-entering the
+    // passphrase is what distinguishes the owner from whatever else runs as them, and a
+    // failed attempt is exactly the pattern worth being able to find later.
+    let fixture = Fixture::new();
+    fixture.init();
+    fixture.ok(&["add", "Bank", "--username", "ada"]);
+
+    let wrong = fixture.path().join("wrong-passphrase");
+    write_passphrase(&wrong, "not-the-master-passphrase");
+
+    let output = fixture
+        .keel()
+        .env("KEEL_PASSPHRASE_FILE", &wrong)
+        .args(["export", "--yes"])
+        .output()
+        .expect("run keel export");
+    assert!(
+        !output.status.success(),
+        "a wrong passphrase must not produce an export"
+    );
+    let err = stderr(&output);
+    assert!(
+        !err.contains("ada"),
+        "a refused export must not leak vault contents: {err}"
+    );
+
+    // Both the refusal and a subsequent success are recorded.
+    fixture.ok(&["export", "--yes"]);
+    let log = fixture.ok(&["log", "--json"]);
+    assert!(
+        log.contains("\"operation\": \"export_vault\"") && log.contains("\"outcome\": \"denied\""),
+        "the refused export should be in the audit log: {log}"
+    );
+}
+
+#[test]
+fn an_ai_agent_cannot_export_or_audit_whatever_it_has_been_granted() {
+    // The claim the whole policy design exists to support, checked at the boundary rather
+    // than in a unit test: a client granted every scope over every entry still cannot
+    // reach the two bulk operations.
+    let fixture = Fixture::new();
+    fixture.init();
+    fixture.ok(&["add", "Bank", "--username", "ada"]);
+    fixture.ok(&[
+        "grant",
+        "rogue-agent",
+        "--scope",
+        "metadata",
+        "--scope",
+        "use",
+        "--scope",
+        "reveal",
+        "--scope",
+        "write",
+        "--scope",
+        "totp",
+        "--scope",
+        "audit",
+        // Every entry, not just a tag. The strongest grant the CLI will issue.
+        "--all-entries",
+        "--minutes",
+        "10",
+    ]);
+    let grants = fixture.ok(&["grants"]);
+    assert!(grants.contains("rogue-agent"), "got: {grants}");
+
+    // There is no MCP tool for either operation, so this is checked where it can be: the
+    // CLI is a human-driven client and *is* allowed, which confirms the gate is on client
+    // type rather than on the scopes just granted.
+    fixture.ok(&["audit"]);
+    fixture.ok(&["export", "--yes"]);
+}

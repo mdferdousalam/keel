@@ -364,6 +364,16 @@ pub enum Request {
     /// The agent enforces that; there is no scope or grant that reaches it.
     VaultHealth,
 
+    /// Export every secret as plaintext.
+    ///
+    /// Requires the master passphrase again, even though the vault is already unlocked: an
+    /// unlocked vault proves only that somebody unlocked it recently, and this is the one
+    /// operation that hands over everything at once. Human-driven clients only.
+    Export {
+        /// The master passphrase, re-entered.
+        passphrase: String,
+    },
+
     /// Grant an automated client a set of capabilities.
     ///
     /// Only a human-driven client (the GUI or the CLI) may send this: an agent granting itself
@@ -598,6 +608,16 @@ pub enum Response {
         flagged: usize,
     },
 
+    /// Every entry, in plaintext.
+    ///
+    /// The only response in this protocol that deliberately carries secrets in bulk. It
+    /// exists because a password manager you cannot leave is a trap; it is reached only
+    /// from a human-driven client that has just re-entered the master passphrase.
+    Exported {
+        /// Every live entry, with its secrets.
+        entries: Vec<ExportedEntry>,
+    },
+
     /// The request needs human approval.
     ///
     /// The client should wait; the agent resolves it through the GUI. Carries no secret.
@@ -679,6 +699,34 @@ impl ChainState {
     pub const fn suggests_tampering(&self) -> bool {
         matches!(self, Self::BrokenAt { .. } | Self::TailAltered { .. })
     }
+}
+
+/// One exported entry, secrets included.
+///
+/// Unlike every other type here, this one is *meant* to carry plaintext. It has no
+/// redacting `Debug`: a type whose whole purpose is to be written out as plaintext gains
+/// nothing from hiding its contents in a log, and pretending otherwise would suggest a
+/// protection that is not there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportedEntry {
+    /// Display title.
+    pub title: String,
+    /// Username.
+    pub username: String,
+    /// Password, in the clear.
+    pub password: String,
+    /// TOTP secret, in the clear, if there is one.
+    pub totp_secret: Option<String>,
+    /// Notes.
+    pub notes: String,
+    /// Origins this entry applies to.
+    pub origins: Vec<String>,
+    /// Tags.
+    pub tags: Vec<String>,
+    /// Creation time, Unix seconds.
+    pub created_at: u64,
+    /// When the password last changed, Unix seconds.
+    pub password_changed_at: u64,
 }
 
 /// One entry in a health report.

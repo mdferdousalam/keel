@@ -510,6 +510,20 @@ pub fn render(name: &str, response: &Response) -> ToolResult {
              which passwords are weak or reused is done by the user with `keel audit`.",
         ),
 
+        // And certainly not an export. `export_vault` is the first entry on the list of
+        // tools this server deliberately does not offer: it is the whole vault in
+        // plaintext, which is the exact thing every other refusal here exists to prevent.
+        // The agent process requires a human-driven client and a re-entered master
+        // passphrase, neither of which an MCP client can supply, so this is unreachable.
+        //
+        // Note what is *not* done with the payload: it is dropped without being rendered,
+        // logged, or described. If this arm were ever reached, turning the response into
+        // model-visible text would be the disclosure, not the request that produced it.
+        Response::Exported { .. } => ToolResult::failure(
+            "Keel returned an export of the vault, which no tool here requests and which \
+             this server will not relay. Exporting is done by the user with `keel export`.",
+        ),
+
         Response::Hello { .. } => ToolResult::text("Connected."),
 
         Response::Error { code, message } => {

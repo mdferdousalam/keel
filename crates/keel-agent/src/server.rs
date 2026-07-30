@@ -274,6 +274,7 @@ impl Session {
             Request::Save => self.handle_save(&client),
             Request::AuditTail { limit } => self.handle_audit_tail(&client, limit),
             Request::VaultHealth => self.handle_vault_health(&client),
+            Request::Export { passphrase } => self.handle_export(&client, &passphrase),
             Request::GrantAccess {
                 client_id,
                 scopes,
@@ -708,6 +709,62 @@ impl Session {
         state.audit(client, "save", None, Outcome::Allowed, None);
         state.flush_audit();
         Ok(Response::Ok)
+    }
+
+    /// Export every secret in the vault.
+    ///
+    /// The most dangerous thing the agent can be asked to do, so it is gated twice over.
+    ///
+    /// The policy engine refuses it to any client a human is not driving, checked before
+    /// scopes, so no grant reaches it. On top of that the master passphrase must be
+    /// re-entered and is verified against the vault — an unlocked vault proves only that
+    /// somebody unlocked it in the last few minutes, which is not the same as the owner
+    /// being at the keyboard now. Verification runs the full key derivation, so a wrong
+    /// guess costs an attacker what a real attempt costs.
+    ///
+    /// Recorded in the audit log whether it succeeds or fails. An export that left no
+    /// trace would be the single most useful thing for an attacker to be able to do
+    /// quietly.
+    fn handle_export(&mut self, client: &Client, passphrase: &str) -> Result<Response> {
+        self.authorize(client, &Operation::ExportVault, None)?;
+
+        let mut state = self.lock_state()?;
+        state.touch();
+
+        if !state.verify_passphrase(passphrase)? {
+            // Logged before returning: repeated failures here are exactly the pattern
+            // worth noticing later.
+            state.audit(client, "export_vault", None, Outcome::Denied, None);
+            state.flush_audit();
+            return Err(Failure::new(
+                ErrorCode::UnlockFailed,
+                "that is not the master passphrase",
+            ));
+        }
+
+        let metas: Vec<keel_format::manifest::EntryMeta> = state.vault()?.entries().to_vec();
+        let mut entries = Vec::with_capacity(metas.len());
+        for meta in &metas {
+            let body = state
+                .vault()?
+                .reveal(&meta.record_id)
+                .map_err(|e| Failure::from_core(&e))?;
+            entries.push(keel_proto::ExportedEntry {
+                title: meta.title.clone(),
+                username: meta.username.clone(),
+                password: body.password.clone(),
+                totp_secret: body.totp_secret.clone(),
+                notes: body.notes.clone(),
+                origins: meta.origins.clone(),
+                tags: meta.tags.clone(),
+                created_at: meta.created_at,
+                password_changed_at: meta.password_changed_at,
+            });
+        }
+
+        state.audit(client, "export_vault", None, Outcome::Allowed, None);
+        state.flush_audit();
+        Ok(Response::Exported { entries })
     }
 
     /// Read back the tail of the audit log.

@@ -250,6 +250,25 @@ enum Command {
         limit: u32,
     },
 
+    /// Write every password out as plaintext.
+    ///
+    /// The most dangerous command here: it produces, in one file, exactly what an attacker
+    /// wants. It exists because a password manager you cannot leave is a trap. Requires the
+    /// master passphrase again even though the vault is unlocked.
+    Export {
+        /// Output format.
+        #[arg(long, default_value = "json", value_parser = ["json", "csv"])]
+        format: String,
+
+        /// Write to this file (created 0600) instead of standard output.
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
+
+        /// Skip the "are you sure" prompt. For scripts that already know.
+        #[arg(long)]
+        yes: bool,
+    },
+
     /// Revoke every grant held by a client.
     Revoke {
         /// Client identifier.
@@ -376,6 +395,11 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
         Command::Grants => grants(&mut client, cli.json),
         Command::Audit => audit(&mut client, cli.json),
         Command::Log { limit } => log(&mut client, *limit, cli.json),
+        Command::Export {
+            format,
+            output,
+            yes,
+        } => export(&mut client, format, output.as_deref(), *yes, cli.json),
         Command::Revoke { client_id } => {
             client.request(&Request::RevokeAccess {
                 client_id: client_id.clone(),
@@ -560,6 +584,171 @@ fn grant(
 }
 
 /// List grants.
+/// Write every secret out in the clear.
+///
+/// Three things are deliberate here.
+///
+/// The warning comes *before* the passphrase prompt, so a user who did not realise what
+/// this command does can stop without having typed their master passphrase into something
+/// they then abandon.
+///
+/// A file is created 0600 and, on Unix, opened with `O_EXCL` so an existing file is never
+/// overwritten and a symlink planted at the path is never followed. Writing the entire
+/// vault in plaintext through somebody else's symlink would be a memorable bug.
+///
+/// Standard output is allowed but nudged away from, because `keel export > file` creates
+/// the file with the shell's umask — commonly world-readable — before Keel sees it.
+fn export(
+    client: &mut Client,
+    format: &str,
+    output: Option<&std::path::Path>,
+    yes: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    if !yes {
+        eprintln!(
+            "This writes every password in your vault to {} as readable text.\n\
+             \n\
+             Anything that can read that output has all of your passwords: another user on\n\
+             this machine, a backup service, a cloud-synced folder, your shell history if\n\
+             you redirect it somewhere odd, and your terminal's scrollback if you do not\n\
+             redirect it at all.\n\
+             \n\
+             Delete it as soon as you have imported it elsewhere, and know that on an SSD\n\
+             deleting a file does not reliably destroy its contents — full-disk encryption\n\
+             is what actually protects it.\n",
+            output.map_or_else(
+                || "this terminal".to_owned(),
+                |p| format!("{}", p.display())
+            )
+        );
+        if std::io::stdin().is_terminal() {
+            eprint!("Type 'export' to continue, or anything else to stop: ");
+            use std::io::Write as _;
+            let _ = std::io::stderr().flush();
+            let mut answer = String::new();
+            std::io::stdin()
+                .read_line(&mut answer)
+                .map_err(|e| ClientError::Io {
+                    context: "reading the confirmation",
+                    source: e,
+                })?;
+            if answer.trim() != "export" {
+                eprintln!("Nothing was exported.");
+                return Ok(());
+            }
+        }
+    }
+
+    // Asked for after the warning, on purpose.
+    let passphrase = prompt_passphrase("Master passphrase, to confirm it is you: ")?;
+    let response = client.request(&Request::Export { passphrase })?;
+    let Response::Exported { entries } = response else {
+        return Err(ClientError::Unexpected(
+            "expected an export response".into(),
+        ));
+    };
+
+    let body = match format {
+        "csv" => render_export_csv(&entries),
+        // clap restricts the value, so anything else is unreachable; JSON is the safer
+        // default because it round-trips notes containing newlines and commas.
+        _ => serde_json::to_string_pretty(&serde_json::json!({"entries": entries}))
+            .unwrap_or_default(),
+    };
+
+    match output {
+        Some(path) => {
+            write_private_file(path, body.as_bytes())?;
+            let message = format!(
+                "Wrote {} entr{} to {} with owner-only permissions.",
+                entries.len(),
+                plural(entries.len()),
+                path.display()
+            );
+            emit(
+                json,
+                &message,
+                &serde_json::json!({"exported": entries.len(), "path": path}),
+            );
+        }
+        None => {
+            // Straight to stdout, no `emit`: wrapping plaintext secrets in a status
+            // message would corrupt the data the user asked for.
+            print!("{body}");
+            eprintln!(
+                "\n{} entr{} exported. Nothing was written to disk by Keel.",
+                entries.len(),
+                plural(entries.len())
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Render entries as CSV in the dialect the importers accept.
+///
+/// Hand-rolled rather than pulling in a writer, because the escaping rule is one function
+/// and the crate already has a `csv` dependency only in the import path, which does not
+/// link here.
+fn render_export_csv(entries: &[keel_proto::ExportedEntry]) -> String {
+    fn field(value: &str) -> String {
+        // Quote whenever the value could otherwise change the shape of the row, and double
+        // any embedded quote. A note containing a newline is the common case that breaks
+        // naive writers.
+        if value.contains([',', '"', '\n', '\r']) {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_owned()
+        }
+    }
+    let mut out = String::from("title,username,password,totp_secret,notes,origins,tags\n");
+    for e in entries {
+        out.push_str(&format!(
+            "{},{},{},{},{},{},{}\n",
+            field(&e.title),
+            field(&e.username),
+            field(&e.password),
+            field(e.totp_secret.as_deref().unwrap_or_default()),
+            field(&e.notes),
+            field(&e.origins.join(" ")),
+            field(&e.tags.join(" ")),
+        ));
+    }
+    out
+}
+
+/// Create a file only the owner can read, refusing to overwrite or follow a symlink.
+fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), ClientError> {
+    use std::io::Write as _;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    // `create_new` is what makes this safe: it fails if anything already exists at the
+    // path, including a symlink, so plaintext can never be written through one.
+    let mut file = options.open(path).map_err(|e| ClientError::Io {
+        context: if e.kind() == std::io::ErrorKind::AlreadyExists {
+            "creating the export file: something already exists at that path, and Keel \
+             will not overwrite it"
+        } else {
+            "creating the export file"
+        },
+        source: e,
+    })?;
+    file.write_all(bytes).map_err(|e| ClientError::Io {
+        context: "writing the export file",
+        source: e,
+    })?;
+    file.sync_all().map_err(|e| ClientError::Io {
+        context: "flushing the export file",
+        source: e,
+    })
+}
+
 /// Print recent activity from the audit log.
 fn log(client: &mut Client, limit: u32, json: bool) -> Result<(), ClientError> {
     let Response::Audit {
