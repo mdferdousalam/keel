@@ -76,7 +76,7 @@ pub fn unpad(padded: &[u8], block: usize) -> Result<&[u8]> {
             "padded section is shorter than its length field",
         ));
     }
-    if block == 0 || padded.len() % block != 0 {
+    if block == 0 || !padded.len().is_multiple_of(block) {
         return Err(Error::Malformed(
             "padded section is not a whole number of blocks",
         ));

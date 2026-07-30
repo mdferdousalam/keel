@@ -23,7 +23,7 @@ exclude = ["apps/desktop", "fuzz"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/keel-vault/keel"
 homepage = "https://github.com/keel-vault/keel"
@@ -71,7 +71,6 @@ windows-sys = "0.60"
 
 # --- fs ---
 tempfile = "3"
-fd-lock = "4"
 directories = "6"
 
 # --- dev / test ---

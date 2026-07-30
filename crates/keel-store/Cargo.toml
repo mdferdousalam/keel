@@ -12,9 +12,10 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+keel-crypto = { path = "../keel-crypto" }
 keel-format = { path = "../keel-format" }
+blake3 = { workspace = true }
 directories = { workspace = true }
-fd-lock = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 
