@@ -702,23 +702,96 @@ impl Session {
         self.authorize(client, &Operation::Write { entry: None }, None)?;
         let mut state = self.lock_state()?;
         state.touch();
-        state
-            .vault_mut()?
-            .save()
-            .map_err(|e| Failure::from_core(&e))?;
+        // Goes through the state helper rather than the vault directly, so every save
+        // also commits to how far the audit log has reached.
+        state.save_vault()?;
         state.audit(client, "save", None, Outcome::Allowed, None);
         state.flush_audit();
         Ok(Response::Ok)
     }
 
+    /// Read back the tail of the audit log.
+    ///
+    /// The log is the record of what every client has done with the vault, and it is
+    /// only worth having if it can be read and if interference in it is visible. Two
+    /// details matter more than they look:
+    ///
+    /// Pending records are flushed first, so the tail includes what just happened rather
+    /// than stopping short of it. A user checking "what did that agent just do?" needs
+    /// the answer to include the thing they are asking about.
+    ///
+    /// A chain that fails to verify still returns the records before the break, because
+    /// those are exactly the evidence someone investigating needs. And the two failure
+    /// modes stay distinct: a log ending mid-record is an interrupted append, while a
+    /// break in the middle means a record was edited or removed.
     fn handle_audit_tail(&mut self, client: &Client, limit: Option<u32>) -> Result<Response> {
         self.authorize(client, &Operation::ReadAudit, None)?;
-        let _ = limit;
-        // Reading the log back from disk is a Phase 4 concern (the GUI shows it); the
-        // request is accepted now so clients can be written against a stable protocol.
+
+        let mut state = self.lock_state()?;
+        state.touch();
+        // Include events that have not reached disk yet, including the ones from this
+        // session, so the tail is not misleadingly short.
+        state.flush_audit();
+
+        let key = state.audit_key()?;
+        let path = state.audit_path();
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            // No file yet means nothing has been recorded. An empty log is a fact, not an
+            // error, and it is genuinely different from a log we could not read.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                return Err(Failure::new(
+                    ErrorCode::Internal,
+                    format!("the audit log could not be read: {e}"),
+                ))
+            }
+        };
+
+        let report =
+            keel_core::audit::read_log(&key, &bytes).map_err(|e| Failure::from_core(&e))?;
+        // The chain alone cannot see records removed from the *end* of the log, because
+        // any prefix of a chain is a valid chain. The vault's anchor is what catches that.
+        let integrity = keel_core::audit::check_against_anchor(&report, state.audit_anchor());
+        let total = u64::try_from(report.records.len()).unwrap_or(u64::MAX);
+
+        let take = clamp_audit_limit(limit);
+        // Most recent last, matching how a log reads, but only the tail of it.
+        let start = report.records.len().saturating_sub(take);
+        let records = report
+            .records
+            .get(start..)
+            .unwrap_or(&[])
+            .iter()
+            .map(|record| keel_proto::AuditEntry {
+                seq: record.seq,
+                timestamp: record.timestamp,
+                client_id: record.client_id.clone(),
+                operation: record.operation.clone(),
+                outcome: record.outcome.label().to_owned(),
+                entry: record.entry.as_ref().map(keel_proto::id_to_hex),
+            })
+            .collect();
+
         Ok(Response::Audit {
-            records: Vec::new(),
-            chain_broken: false,
+            records,
+            chain: match integrity {
+                keel_core::audit::ChainIntegrity::Intact => keel_proto::ChainState::Intact,
+                keel_core::audit::ChainIntegrity::BrokenAt { seq } => {
+                    keel_proto::ChainState::BrokenAt { seq }
+                }
+                keel_core::audit::ChainIntegrity::Truncated { after_seq } => {
+                    keel_proto::ChainState::TruncatedAfter { seq: after_seq }
+                }
+                keel_core::audit::ChainIntegrity::TailAltered {
+                    expected_seq,
+                    found_seq,
+                } => keel_proto::ChainState::TailAltered {
+                    expected_seq,
+                    found_seq,
+                },
+            },
+            total,
         })
     }
 
@@ -1132,6 +1205,26 @@ fn materialise_secret(source: &SecretSource, state: &AgentState) -> Result<(Stri
             let (value, entropy) = generate(*length, *words, defaults)?;
             Ok((value, Some(entropy)))
         }
+    }
+}
+
+/// Records returned by an audit tail when the caller does not say.
+const DEFAULT_AUDIT_LIMIT: usize = 50;
+
+/// Most records an audit tail will return.
+///
+/// Bounded so a client cannot ask for the whole log in one frame; the log grows without
+/// limit, and the wire has a 1 MiB cap.
+const MAX_AUDIT_LIMIT: usize = 500;
+
+/// Clamp a requested audit-tail size.
+fn clamp_audit_limit(limit: Option<u32>) -> usize {
+    match limit {
+        None => DEFAULT_AUDIT_LIMIT,
+        Some(0) => 1,
+        Some(n) => usize::try_from(n)
+            .unwrap_or(MAX_AUDIT_LIMIT)
+            .min(MAX_AUDIT_LIMIT),
     }
 }
 

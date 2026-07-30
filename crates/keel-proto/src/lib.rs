@@ -346,8 +346,12 @@ pub enum Request {
     Save,
 
     /// Read recent audit records.
+    ///
+    /// The log is encrypted under a subkey of the vault master key, so it is readable
+    /// only while the vault is unlocked — and by exactly the process that could read the
+    /// vault anyway.
     AuditTail {
-        /// How many records.
+        /// How many records, most recent first. Capped by the agent.
         #[serde(default)]
         limit: Option<u32>,
     },
@@ -566,8 +570,10 @@ pub enum Response {
     Audit {
         /// Records, oldest first.
         records: Vec<AuditEntry>,
-        /// True if the chain failed to verify.
-        chain_broken: bool,
+        /// Whether the hash chain verified, and how it failed if not.
+        chain: ChainState,
+        /// Total records in the log, which may exceed the number returned.
+        total: u64,
     },
 
     /// A vault health report.
@@ -624,6 +630,55 @@ pub struct GrantSummary {
     pub expires_at: u64,
     /// Remaining operations before the grant is spent.
     pub uses_remaining: u32,
+}
+
+/// Whether an audit log's hash chain verified.
+///
+/// The distinction between the two failure modes is the point of carrying an enum here
+/// rather than a boolean. A log that ends mid-record is almost always an interrupted
+/// write — appends are not atomic, and a power failure produces exactly this — whereas a
+/// chain that breaks in the *middle* means a record was edited or removed. Reporting the
+/// first as tampering would cry wolf over a power cut; reporting the second as
+/// truncation would hide an attack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ChainState {
+    /// Every record verified against its predecessor.
+    Intact,
+    /// A record was edited or removed at this point. Records before it still verify.
+    BrokenAt {
+        /// Sequence number where verification failed.
+        seq: u64,
+    },
+    /// The file ends mid-record, usually an interrupted append rather than an attack.
+    TruncatedAfter {
+        /// Last sequence number that verified.
+        seq: u64,
+    },
+    /// The end of the log does not match what the vault committed to.
+    ///
+    /// Either records were removed from the end (`found_seq < expected_seq`) or the tail
+    /// was rebuilt with the same number of different records (`found_seq == expected_seq`,
+    /// different chain tip). Both are invisible to the chain itself, because any prefix of
+    /// a chain — and any freshly built chain — verifies. Caught only against what the
+    /// vault committed to at its last save.
+    ///
+    /// An interrupted write leaves a *partial* record and is reported as
+    /// [`TruncatedAfter`](Self::TruncatedAfter) instead, so this really is interference.
+    TailAltered {
+        /// Records the vault expected.
+        expected_seq: u64,
+        /// Records actually present.
+        found_seq: u64,
+    },
+}
+
+impl ChainState {
+    /// Whether this indicates deliberate interference rather than an accident.
+    #[must_use]
+    pub const fn suggests_tampering(&self) -> bool {
+        matches!(self, Self::BrokenAt { .. } | Self::TailAltered { .. })
+    }
 }
 
 /// One entry in a health report.

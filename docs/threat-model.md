@@ -163,7 +163,8 @@ Can call any exposed tool, arbitrarily often, with attacker-authored arguments.
   supplied by the agent.
 * Rate limits and a circuit breaker that revokes all grants for a client after
   repeated denials.
-* Hash-chained audit log; never records secret values.
+* Hash-chained audit log; never records secret values. See
+  [What the audit log does and does not prove](#what-the-audit-log-does-and-does-not-prove).
 
 **The security story in one sentence:** in the default configuration an agent can
 log you into things and manage entries, and cannot exfiltrate a single password
@@ -277,3 +278,43 @@ Several guarantees are weaker without these, and the model assumes them:
 Revisit this document when: the vault format version changes; a new IPC client
 type is added; the MCP tool surface changes; a network-capable dependency is
 introduced; or any approval flow is modified.
+
+## What the audit log does and does not prove
+
+Every request any client makes is appended to `vault.keel.audit`, encrypted under a
+subkey of the vault master key and chained: each record commits to the hash of its
+predecessor. `keel log` reads it back and reports what verified.
+
+Being precise about what that buys is worth more than the phrase "tamper-evident".
+
+**Detected.** Editing any record, or removing or reordering records in the middle,
+breaks the chain at that point. `keel log` names the sequence number and still prints
+the records *before* the break, because those are the evidence — discarding a good
+prefix because the file was damaged later would destroy exactly what an investigation
+needs.
+
+**Detected, but only with help.** Deleting records from the **end** is invisible to
+the chain, because records 1..k form a valid chain for any k. So is rebuilding the
+tail from scratch, which produces a different but internally consistent chain. Neither
+is caught by chaining alone. Keel therefore stores an *anchor* — the expected record
+count and chain tip — inside the vault manifest, which is authenticated under the
+vault key. Anyone able to forge that anchor can already rewrite the vault itself, at
+which point the audit log is the least of the problems.
+
+**Not detected.** The anchor is refreshed when the vault is *saved*, and commits only
+to records already flushed at that moment. It is a floor, not an exact count: records
+appended after the last save can be removed without detection. Closing that window
+completely would mean a vault write for every audit record, which is a poor trade for
+a log whose purpose is to make patterns of abuse visible rather than to be evidence in
+court. The practical shape of the limit: an attacker can erase the tail of a session,
+not the history of one.
+
+**Not the point at all.** The log is not a defence against an attacker who has already
+compromised the machine while the vault is unlocked — such an attacker can simply
+stop the agent, or read the vault directly. It exists so that abuse by something with
+*legitimate but limited* access, an AI agent or a browser extension, leaves a record
+the user can review. Its threat model is a misbehaving client, not a root shell.
+
+**Availability, not confidentiality.** The log is encrypted, so a local attacker
+learns nothing from reading it — but they can delete the whole file, and nothing
+stops that. A missing log is conspicuous, which is the most that can be claimed.

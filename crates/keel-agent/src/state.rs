@@ -306,7 +306,12 @@ impl AgentState {
         // The audit key is derived from the vault master key, so the log is only readable
         // while unlocked — which is correct: it describes vault activity.
         let audit_key = derive_audit_key(&vault).map_err(|e| Failure::from_core(&e))?;
-        self.audit = Some(AuditLog::new(audit_key));
+        // *Resume* the existing chain rather than starting a new one. Starting fresh would
+        // append records numbered from 1 onto a log that already had records, breaking the
+        // chain at the join — so a user who did nothing but lock and unlock would be told
+        // their audit log had been tampered with. That was a real bug, caught by a
+        // lock/unlock round trip with no tampering at all.
+        self.audit = Some(resume_audit_log(&self.paths.audit(), audit_key));
 
         self.vault = Some(vault);
         self.handles.clear();
@@ -419,6 +424,51 @@ impl AgentState {
         });
     }
 
+    /// Save the vault, committing to how far the audit log has reached.
+    ///
+    /// Order matters. The log is flushed **before** the anchor is computed, so the anchor
+    /// commits only to records that are actually on disk — anchoring a record still
+    /// sitting in memory would make the next read report tampering against a log that
+    /// never got the record. Everything appended after this point is covered by the next
+    /// save's anchor, which is why the anchor is a floor rather than an exact count.
+    pub fn save_vault(&mut self) -> Result<()> {
+        self.flush_audit();
+        let anchor = self
+            .audit
+            .as_ref()
+            .map(|log| keel_format::manifest::AuditAnchor {
+                // `next_seq` is the number the *next* record will take, so the last one
+                // written is one below it.
+                seq: log.next_seq().saturating_sub(1),
+                tip: log.tip(),
+            });
+        if let Some(anchor) = anchor {
+            self.vault_mut()?.set_audit_anchor(anchor);
+        }
+        self.vault_mut()?.save().map_err(|e| Failure::from_core(&e))
+    }
+
+    /// The audit anchor the vault last committed to.
+    #[must_use]
+    pub fn audit_anchor(&self) -> Option<keel_format::manifest::AuditAnchor> {
+        self.vault().ok().and_then(UnlockedVault::audit_anchor)
+    }
+
+    /// The audit-log key, for reading the log back.
+    ///
+    /// Derived from the vault master key, so this fails while locked — which is the
+    /// intended behaviour: the log describes vault access and should be no more readable
+    /// than the vault it describes.
+    pub fn audit_key(&self) -> Result<keel_crypto::Key256> {
+        derive_audit_key(self.vault()?).map_err(|e| Failure::from_core(&e))
+    }
+
+    /// Where the audit log lives.
+    #[must_use]
+    pub fn audit_path(&self) -> std::path::PathBuf {
+        self.paths.audit()
+    }
+
     /// Flush pending audit records to disk.
     pub fn flush_audit(&mut self) {
         let Some(log) = &mut self.audit else { return };
@@ -430,17 +480,49 @@ impl AgentState {
         let existed = path.exists();
         // Append-only. A failure here loses audit records but must never lose vault data,
         // so it is not propagated.
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
+        //
+        // Created 0600 like the vault. The contents are encrypted, so a permissive mode
+        // would not expose what the log says — but its *size* tracks how many operations
+        // the user has performed, and the file's existence reveals that they use Keel at
+        // all. Neither is any other local account's business, and the umask default of
+        // 0644 would hand both over.
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
         {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        if let Ok(mut file) = options.open(&path) {
             use std::io::Write as _;
             if !existed {
                 let _ = file.write_all(&AuditLog::file_header());
             }
             let _ = file.write_all(&pending);
         }
+    }
+}
+
+/// Open the audit log for appending, continuing the existing chain.
+///
+/// Resumes from the last record that *verified*. If the log is damaged, new records chain
+/// onto the good prefix rather than onto the damage — and the damage stays in the file
+/// where `keel log` reports it. Deliberately not "reset on a bad log": silently starting a
+/// new chain over a broken one would erase the evidence that anything was wrong, which is
+/// the one thing an audit log must never do.
+fn resume_audit_log(path: &std::path::Path, key: keel_crypto::Key256) -> AuditLog {
+    let Ok(bytes) = std::fs::read(path) else {
+        // No log yet, or it cannot be read. A fresh chain is correct for the first case;
+        // for the second, the append will fail too and there is nothing better to do.
+        return AuditLog::new(key);
+    };
+    match keel_core::audit::read_log(&key, &bytes) {
+        Ok(report) => {
+            let next_seq = report.records.last().map_or(1, |r| r.seq.saturating_add(1));
+            AuditLog::resume(key, next_seq, report.tip)
+        }
+        // Unreadable header or an unsupported version: not something appending can fix.
+        Err(_) => AuditLog::new(key),
     }
 }
 

@@ -38,7 +38,7 @@ use crate::limits;
 use crate::padding::{self, MANIFEST_BLOCK};
 
 /// Schema version for the manifest, independent of the file format version.
-pub const MANIFEST_SCHEMA: u16 = 1;
+pub const MANIFEST_SCHEMA: u16 = 2;
 
 /// Identifier type used for entries, folders, and attachments.
 pub type Id = [u8; 16];
@@ -421,6 +421,48 @@ pub struct Manifest {
     /// Lets an edited record be written in place when it still fits, so a one-entry
     /// change does not rewrite the whole records section.
     pub free_space: Vec<(u64, u64)>,
+    /// Where the audit log had reached as of the last vault save.
+    ///
+    /// `None` in a vault that has never been saved with an audit log open.
+    pub audit_anchor: Option<AuditAnchor>,
+}
+
+/// A commitment to how far the audit log had got, stored inside the manifest.
+///
+/// # Why this exists
+///
+/// A hash chain makes editing or removing a record in the *middle* of the log
+/// detectable, because every record commits to its predecessor. It does nothing about
+/// removing records from the **end**: records 1..k form a perfectly valid chain for any
+/// k, so an attacker who does something incriminating and then deletes the last few
+/// records leaves a log that verifies cleanly. That is a well-known property of bare
+/// append-only chains, and it was a real hole in this design until this type existed —
+/// it was found by a test that cut the log one byte at a time and noticed that cutting
+/// exactly one whole record produced `Intact`.
+///
+/// The fix is to keep the expected length and tip somewhere the attacker also has to
+/// forge. The manifest is encrypted and authenticated under a subkey of the vault master
+/// key, so anyone who can rewrite this anchor can already rewrite the vault, and the
+/// audit log is the least of the problems.
+///
+/// # What it does and does not cover
+///
+/// The anchor is refreshed when the vault is saved, so it is a **floor**, not an exact
+/// count: it proves that at least `seq` records existed, with a given chain tip, as of
+/// the last save. Records appended *after* the last save are still removable without
+/// detection. Narrowing that window means anchoring more often, which costs a vault
+/// write per audit record — so the honest statement, which belongs in the threat model
+/// rather than in a footnote, is that tail truncation back to the last vault save is
+/// detected and truncation of newer records than that is not.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuditAnchor {
+    /// Sequence number of the last record the vault has seen.
+    pub seq: u64,
+    /// Chain hash after that record.
+    ///
+    /// Checked as well as `seq` so that replacing the tail with a *different* set of
+    /// records of the same length is caught too.
+    pub tip: [u8; 32],
 }
 
 impl Default for Manifest {
@@ -434,6 +476,7 @@ impl Default for Manifest {
             paired_clients: Vec::new(),
             grants: Vec::new(),
             free_space: Vec::new(),
+            audit_anchor: None,
         }
     }
 }

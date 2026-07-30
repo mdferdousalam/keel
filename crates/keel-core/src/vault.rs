@@ -410,6 +410,31 @@ impl UnlockedVault {
         &mut self.manifest.settings
     }
 
+    /// The audit anchor recorded at the last save.
+    #[must_use]
+    pub const fn audit_anchor(&self) -> Option<keel_format::manifest::AuditAnchor> {
+        self.manifest.audit_anchor
+    }
+
+    /// Record how far the audit log has reached, to be written by the next save.
+    ///
+    /// This is what makes removing records from the end of the log detectable; see
+    /// [`AuditAnchor`](keel_format::manifest::AuditAnchor). The caller is the agent,
+    /// which is the only holder of the open log.
+    ///
+    /// Refuses to move the anchor backwards. Lowering it would let a caller that had
+    /// already lost or truncated its log quietly re-bless the shorter version, turning
+    /// the anchor into a rubber stamp.
+    pub fn set_audit_anchor(&mut self, anchor: keel_format::manifest::AuditAnchor) {
+        let advances = self
+            .manifest
+            .audit_anchor
+            .is_none_or(|current| anchor.seq >= current.seq);
+        if advances {
+            self.manifest.audit_anchor = Some(anchor);
+        }
+    }
+
     /// The vault's unique identifier.
     #[must_use]
     pub fn uuid(&self) -> [u8; 16] {

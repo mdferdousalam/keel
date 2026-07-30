@@ -76,6 +76,21 @@ pub enum Outcome {
 }
 
 impl Outcome {
+    /// A stable name for display and for machine-readable output.
+    ///
+    /// Stable because it appears in `keel log --json`, so changing one of these strings
+    /// breaks anything parsing the log.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Allowed => "allowed",
+            Self::Denied => "denied",
+            Self::ApprovedByUser => "approved_by_user",
+            Self::RefusedByUser => "refused_by_user",
+            Self::TimedOut => "timed_out",
+        }
+    }
+
     /// Classify a policy decision. Escalations resolve later, so they are not here.
     #[must_use]
     pub const fn from_decision(decision: &Decision) -> Option<Self> {
@@ -317,6 +332,23 @@ impl AuditLog {
         }
     }
 
+    /// Continue an existing log.
+    ///
+    /// Unlocking a vault that already has a log **must** use this rather than
+    /// [`new`](Self::new). `new` starts at sequence 1 with a zero predecessor, so a second
+    /// session would append records numbered from 1 onto an existing chain and break it at
+    /// the join — reporting tampering to a user who had done nothing but lock and unlock.
+    /// That was a real bug, and it is the reason this constructor exists.
+    #[must_use]
+    pub fn resume(key: Key256, next_seq: u64, tip: [u8; 32]) -> Self {
+        Self {
+            key,
+            next_seq,
+            tip,
+            pending: Vec::new(),
+        }
+    }
+
     /// Sequence number the next record will take.
     #[must_use]
     pub const fn next_seq(&self) -> u64 {
@@ -396,6 +428,11 @@ pub struct AuditReport {
     pub records: Vec<AuditRecord>,
     /// Where verification stopped, if it did.
     pub integrity: ChainIntegrity,
+    /// Chain hash after the last record that verified, or zeroes for an empty log.
+    ///
+    /// This is what a later session needs in order to *continue* the chain rather than
+    /// start a new one, and what the vault's anchor is compared against.
+    pub tip: [u8; 32],
 }
 
 /// The result of verifying a log's chain.
@@ -419,13 +456,34 @@ pub enum ChainIntegrity {
         /// Last sequence number that verified.
         after_seq: u64,
     },
+    /// The end of the log does not match what the vault committed to.
+    ///
+    /// Covers both shapes of the same attack, because both are invisible to the chain
+    /// itself — records 1..k are a valid chain for any k, and a *rebuilt* tail is a valid
+    /// chain too:
+    ///
+    /// * `found_seq < expected_seq` — records were removed from the end.
+    /// * `found_seq == expected_seq` but the tip differs — the tail was replaced with the
+    ///   same number of different records.
+    ///
+    /// Detectable only against the anchor the vault stores at each save; see
+    /// [`AuditAnchor`](keel_format::manifest::AuditAnchor).
+    ///
+    /// This is tampering: an interrupted write leaves a *partial* record, which is
+    /// reported as [`Truncated`](Self::Truncated) instead.
+    TailAltered {
+        /// Records the vault expected, from the anchor.
+        expected_seq: u64,
+        /// Records actually present and verifying.
+        found_seq: u64,
+    },
 }
 
 impl ChainIntegrity {
     /// Whether this indicates deliberate interference rather than an accident.
     #[must_use]
     pub const fn suggests_tampering(&self) -> bool {
-        matches!(self, Self::BrokenAt { .. })
+        matches!(self, Self::BrokenAt { .. } | Self::TailAltered { .. })
     }
 }
 
@@ -440,6 +498,7 @@ pub fn read_log(key: &Key256, bytes: &[u8]) -> Result<AuditReport> {
         return Ok(AuditReport {
             records: Vec::new(),
             integrity: ChainIntegrity::Intact,
+            tip: [0u8; 32],
         });
     }
     if r.array::<8>()? != AUDIT_MAGIC {
@@ -464,6 +523,7 @@ pub fn read_log(key: &Key256, bytes: &[u8]) -> Result<AuditReport> {
                 integrity: ChainIntegrity::Truncated {
                     after_seq: expected_seq.saturating_sub(1),
                 },
+                tip: expected_prev,
             });
         };
         let Ok(frame) = r.take(len) else {
@@ -472,6 +532,7 @@ pub fn read_log(key: &Key256, bytes: &[u8]) -> Result<AuditReport> {
                 integrity: ChainIntegrity::Truncated {
                     after_seq: expected_seq.saturating_sub(1),
                 },
+                tip: expected_prev,
             });
         };
 
@@ -487,6 +548,7 @@ pub fn read_log(key: &Key256, bytes: &[u8]) -> Result<AuditReport> {
                 return Ok(AuditReport {
                     records,
                     integrity: ChainIntegrity::BrokenAt { seq: expected_seq },
+                    tip: expected_prev,
                 })
             }
         };
@@ -496,6 +558,7 @@ pub fn read_log(key: &Key256, bytes: &[u8]) -> Result<AuditReport> {
             return Ok(AuditReport {
                 records,
                 integrity: ChainIntegrity::BrokenAt { seq: expected_seq },
+                tip: expected_prev,
             });
         }
         expected_prev = record.chain_hash()?;
@@ -506,7 +569,51 @@ pub fn read_log(key: &Key256, bytes: &[u8]) -> Result<AuditReport> {
     Ok(AuditReport {
         records,
         integrity: ChainIntegrity::Intact,
+        tip: expected_prev,
     })
+}
+
+/// Check a log against the vault's anchor.
+///
+/// Call this after [`read_log`]. It upgrades an `Intact` verdict to
+/// [`ChainIntegrity::TailAltered`] when the vault remembers more records than the log
+/// contains, which is the one form of interference the chain alone cannot see.
+///
+/// A log that already failed to verify is returned unchanged: the earlier failure is
+/// more specific and more urgent than "and also it is short".
+///
+/// No anchor means no claim — a vault saved before anchoring existed, or one never saved
+/// with a log open. Reporting tampering on absence would fire on every new vault.
+#[must_use]
+pub fn check_against_anchor(
+    report: &AuditReport,
+    anchor: Option<keel_format::manifest::AuditAnchor>,
+) -> ChainIntegrity {
+    if report.integrity != ChainIntegrity::Intact {
+        return report.integrity;
+    }
+    let Some(anchor) = anchor else {
+        return ChainIntegrity::Intact;
+    };
+
+    let last = report.records.last();
+    let found_seq = last.map_or(0, |r| r.seq);
+    if found_seq < anchor.seq {
+        return ChainIntegrity::TailAltered {
+            expected_seq: anchor.seq,
+            found_seq,
+        };
+    }
+
+    // Same length but a different tip means the tail was replaced rather than removed,
+    // which the sequence check alone would miss.
+    if found_seq == anchor.seq && report.tip != anchor.tip {
+        return ChainIntegrity::TailAltered {
+            expected_seq: anchor.seq,
+            found_seq,
+        };
+    }
+    ChainIntegrity::Intact
 }
 
 #[cfg(test)]
@@ -811,5 +918,188 @@ mod tests {
         let report = read_log(&key(), &bytes).unwrap();
         assert_eq!(report.integrity, ChainIntegrity::Intact);
         assert_eq!(report.records.len(), 6);
+    }
+
+    #[test]
+    fn truncation_is_classified_as_truncation_at_every_cut_point() {
+        // The distinction this test defends: a log that ends mid-record is an
+        // interrupted append — writes are not atomic, so a power failure produces
+        // exactly this — while a break in the middle means a record was edited or
+        // removed. Reporting the first as tampering cries wolf over a power cut.
+        //
+        // Every cut point is checked because the classification depends on *where* the
+        // file ends relative to a record's length prefix and body, and a cut that lands
+        // inside the prefix takes a different path from one inside the body.
+        let verify_key = key();
+        let mut log = AuditLog::new(key());
+        for i in 0..5 {
+            log.append(&search_event(NOW + i)).unwrap();
+        }
+        let mut bytes = AuditLog::file_header();
+        bytes.extend_from_slice(&log.take_pending());
+
+        let full = read_log(&verify_key, &bytes).unwrap();
+        assert_eq!(full.integrity, ChainIntegrity::Intact);
+        assert_eq!(full.records.len(), 5);
+
+        // The anchor the vault would have written after all five records.
+        let anchor = keel_format::manifest::AuditAnchor {
+            seq: 5,
+            tip: full.records.last().unwrap().chain_hash().unwrap(),
+        };
+        assert_eq!(
+            check_against_anchor(&full, Some(anchor)),
+            ChainIntegrity::Intact
+        );
+
+        // Cut one byte at a time off the end. Two outcomes are legitimate, and the
+        // distinction is the point of this test:
+        //
+        //  * A cut landing inside a record leaves a partial record: `Truncated`, which
+        //    an interrupted append also produces, so it must not be called tampering.
+        //  * A cut removing whole records leaves a shorter but perfectly valid chain, so
+        //    `read_log` alone reports `Intact`. That is the hole `AuditAnchor` exists to
+        //    close, and against the anchor it must come back as `TailRemoved`.
+        let header_len = AuditLog::file_header().len();
+        let mut saw_partial = 0;
+        let mut saw_whole = 0;
+        for cut in 1..(bytes.len() - header_len) {
+            let short = &bytes[..bytes.len() - cut];
+            let report = read_log(&verify_key, short).unwrap();
+            match report.integrity {
+                ChainIntegrity::Truncated { .. } => {
+                    saw_partial += 1;
+                    assert!(
+                        !report.integrity.suggests_tampering(),
+                        "a partial record is an interrupted write, not tampering (cut {cut})"
+                    );
+                }
+                ChainIntegrity::Intact => {
+                    saw_whole += 1;
+                    // The chain is happy; the anchor must not be.
+                    let verdict = check_against_anchor(&report, Some(anchor));
+                    assert!(
+                        verdict.suggests_tampering(),
+                        "removing whole records (cut {cut}, {} left) must be caught by the \
+                         anchor, got {verdict:?}",
+                        report.records.len()
+                    );
+                    assert!(matches!(verdict, ChainIntegrity::TailAltered { .. }));
+                }
+                other => panic!("cutting {cut} byte(s) gave an unexpected {other:?}"),
+            }
+        }
+        // Both paths must actually have been exercised, or the test proves nothing.
+        assert!(saw_partial > 0, "no cut landed inside a record");
+        assert!(saw_whole > 0, "no cut removed a whole record");
+    }
+
+    #[test]
+    fn replacing_the_tail_with_different_records_is_caught() {
+        // Same length, different content: the sequence check alone would pass, so the
+        // anchor commits to the chain tip as well.
+        let verify_key = key();
+        let mut log = AuditLog::new(key());
+        for i in 0..5 {
+            log.append(&search_event(NOW + i)).unwrap();
+        }
+        let mut bytes = AuditLog::file_header();
+        bytes.extend_from_slice(&log.take_pending());
+        let real = read_log(&verify_key, &bytes).unwrap();
+        let anchor = keel_format::manifest::AuditAnchor {
+            seq: 5,
+            tip: real.records.last().unwrap().chain_hash().unwrap(),
+        };
+
+        // An attacker rebuilds a five-record log with different timestamps. It is a
+        // valid chain under the same key, so `read_log` accepts it.
+        let mut forged_log = AuditLog::new(key());
+        for i in 0..5 {
+            forged_log.append(&search_event(NOW + 1000 + i)).unwrap();
+        }
+        let mut forged = AuditLog::file_header();
+        forged.extend_from_slice(&forged_log.take_pending());
+        let forged_report = read_log(&verify_key, &forged).unwrap();
+        assert_eq!(
+            forged_report.integrity,
+            ChainIntegrity::Intact,
+            "a forged log is internally consistent, which is why the anchor is needed"
+        );
+        assert_eq!(forged_report.records.len(), 5);
+
+        // The anchor catches it, because the tip differs.
+        let verdict = check_against_anchor(&forged_report, Some(anchor));
+        assert!(
+            verdict.suggests_tampering(),
+            "a replaced tail of the same length must be caught, got {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn a_vault_with_no_anchor_makes_no_claim() {
+        // Every new vault is in this state. Reporting tampering on a missing anchor would
+        // fire on first use.
+        let verify_key = key();
+        let mut log = AuditLog::new(key());
+        log.append(&search_event(NOW)).unwrap();
+        let mut bytes = AuditLog::file_header();
+        bytes.extend_from_slice(&log.take_pending());
+        let report = read_log(&verify_key, &bytes).unwrap();
+        assert_eq!(check_against_anchor(&report, None), ChainIntegrity::Intact);
+    }
+
+    #[test]
+    fn a_log_longer_than_the_anchor_is_fine() {
+        // The normal case: records have been appended since the last vault save. The
+        // anchor is a floor, not an exact count.
+        let verify_key = key();
+        let mut log = AuditLog::new(key());
+        for i in 0..5 {
+            log.append(&search_event(NOW + i)).unwrap();
+        }
+        let mut bytes = AuditLog::file_header();
+        bytes.extend_from_slice(&log.take_pending());
+        let report = read_log(&verify_key, &bytes).unwrap();
+        let anchor = keel_format::manifest::AuditAnchor {
+            seq: 2,
+            tip: report.records.get(1).unwrap().chain_hash().unwrap(),
+        };
+        assert_eq!(
+            check_against_anchor(&report, Some(anchor)),
+            ChainIntegrity::Intact
+        );
+    }
+
+    #[test]
+    fn editing_a_record_in_the_middle_is_classified_as_tampering() {
+        // The other half of the distinction. A flipped byte inside any record must be
+        // reported as a break, with the good prefix preserved as evidence.
+        let verify_key = key();
+        let mut log = AuditLog::new(key());
+        for i in 0..5 {
+            log.append(&search_event(NOW + i)).unwrap();
+        }
+        let mut bytes = AuditLog::file_header();
+        bytes.extend_from_slice(&log.take_pending());
+
+        // Flip a byte inside the body of the file, past the header, and not in the final
+        // record (so this is an edit rather than a truncation).
+        let target = AuditLog::file_header().len() + 40;
+        let mut tampered = bytes.clone();
+        tampered[target] ^= 0x01;
+
+        let report = read_log(&verify_key, &tampered).unwrap();
+        assert!(
+            report.integrity.suggests_tampering(),
+            "an edited record should be reported as tampering, got {:?}",
+            report.integrity
+        );
+        // Records before the break are still returned: they are the evidence.
+        match report.integrity {
+            ChainIntegrity::BrokenAt { seq } => {
+                assert_eq!(report.records.len() as u64, seq - 1);
+            }
+            other => panic!("expected BrokenAt, got {other:?}"),
+        }
     }
 }

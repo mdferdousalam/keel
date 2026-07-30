@@ -239,6 +239,17 @@ enum Command {
     /// granted. No password value is printed.
     Audit,
 
+    /// Show recent vault activity from the tamper-evident audit log.
+    ///
+    /// Every request any client makes is recorded in a hash-chained log encrypted under a
+    /// subkey of the vault key. Editing or removing a record breaks the chain, and this
+    /// command says so.
+    Log {
+        /// How many records to show, most recent last.
+        #[arg(long, default_value = "50")]
+        limit: u32,
+    },
+
     /// Revoke every grant held by a client.
     Revoke {
         /// Client identifier.
@@ -364,6 +375,7 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
         } => import(&mut client, file, *dry_run, *shred, cli.json),
         Command::Grants => grants(&mut client, cli.json),
         Command::Audit => audit(&mut client, cli.json),
+        Command::Log { limit } => log(&mut client, *limit, cli.json),
         Command::Revoke { client_id } => {
             client.request(&Request::RevokeAccess {
                 client_id: client_id.clone(),
@@ -548,6 +560,154 @@ fn grant(
 }
 
 /// List grants.
+/// Print recent activity from the audit log.
+fn log(client: &mut Client, limit: u32, json: bool) -> Result<(), ClientError> {
+    let Response::Audit {
+        records,
+        chain,
+        total,
+    } = client.request(&Request::AuditTail { limit: Some(limit) })?
+    else {
+        return Err(ClientError::Unexpected("expected an audit response".into()));
+    };
+
+    if json {
+        print_json(&serde_json::json!({
+            "records": records,
+            "chain": chain,
+            "total": total,
+        }));
+        return Ok(());
+    }
+
+    // The chain verdict goes first when something is wrong. A user scanning the output
+    // should not have to reach the bottom to find out the log cannot be trusted.
+    match chain {
+        keel_proto::ChainState::BrokenAt { seq } => {
+            println!(
+                "  WARNING: the audit chain fails to verify at record {seq}.\n  \
+                 A record has been edited or removed. The {} record{} shown below \
+                 precede the break and still verify.\n",
+                records.len(),
+                if records.len() == 1 { "" } else { "s" }
+            );
+        }
+        keel_proto::ChainState::TruncatedAfter { seq } => {
+            println!(
+                "  Note: the log ends mid-record after {seq}. Appends are not atomic, so \
+                 this is\n  usually an interrupted write rather than interference.\n"
+            );
+        }
+        keel_proto::ChainState::TailAltered {
+            expected_seq,
+            found_seq,
+        } => {
+            // Two different attacks reach this state, and telling the user which one it
+            // was matters: "records are missing" and "records were rewritten" call for
+            // different responses.
+            let what = if found_seq < expected_seq {
+                format!(
+                    "{} record{} been removed from the end of the log",
+                    expected_seq - found_seq,
+                    if expected_seq - found_seq == 1 {
+                        " has"
+                    } else {
+                        "s have"
+                    }
+                )
+            } else {
+                format!(
+                    "the last record{} of the log {} been rewritten",
+                    if expected_seq == 1 { "" } else { "s" },
+                    if expected_seq == 1 { "has" } else { "have" }
+                )
+            };
+            println!(
+                "  WARNING: {what}.\n  The vault committed to {expected_seq} record{} at its \
+                 last save; {found_seq} now verify, and the chain\n  does not end where the \
+                 vault says it should.\n\n  A hash chain cannot catch this alone — any prefix \
+                 of a chain, and any freshly\n  rebuilt chain, verifies perfectly well. The \
+                 vault's own committed count is what\n  caught it. An interrupted write would \
+                 leave a partial record, not a clean one, so\n  this is interference rather \
+                 than an accident.\n",
+                if expected_seq == 1 { "" } else { "s" },
+            );
+        }
+        keel_proto::ChainState::Intact => {}
+    }
+
+    if records.is_empty() {
+        println!("Nothing has been recorded yet.");
+        return Ok(());
+    }
+
+    for record in &records {
+        let entry = record.entry.as_deref().map_or_else(String::new, |id| {
+            // Entry ids are recorded, not titles: the log must stay readable even after an
+            // entry is deleted, and a title in a log is a secret-adjacent thing to store.
+            format!("  entry {}", &id[..id.len().min(8)])
+        });
+        println!(
+            "{:>6}  {}  {:<18}  {:<16}  {}{}",
+            record.seq,
+            format_timestamp(record.timestamp),
+            truncate(&record.client_id, 18),
+            record.operation,
+            record.outcome,
+            entry
+        );
+    }
+
+    if total > records.len() as u64 {
+        println!(
+            "\nShowing the last {} of {total} records. Use --limit to see more.",
+            records.len()
+        );
+    }
+    if matches!(chain, keel_proto::ChainState::Intact) {
+        println!("\nThe hash chain verifies over all {total} records.");
+    }
+    Ok(())
+}
+
+/// Render a Unix timestamp as UTC, without pulling in a date library.
+///
+/// `time` and `chrono` are both larger than this needs to be, and this runs in a client
+/// that deliberately holds no vault code — keeping its dependency list short is the point.
+/// Implements the civil-from-days algorithm, which is exact for all values we can hold.
+//
+// Truncating division is the algorithm, not an accident: every `/` here is a deliberate
+// floor over day, era, and year-of-era counts, and rounding any of them would move dates.
+// The lint is right to ask in general and wrong here, so it is silenced narrowly with the
+// reason rather than crate-wide.
+#[allow(
+    clippy::integer_division,
+    reason = "calendar arithmetic is defined in terms of floor division"
+)]
+fn format_timestamp(unix: u64) -> String {
+    let days = (unix / 86_400) as i64;
+    let secs_of_day = unix % 86_400;
+    let (hh, mm, ss) = (
+        secs_of_day / 3600,
+        (secs_of_day % 3600) / 60,
+        secs_of_day % 60,
+    );
+
+    // Howard Hinnant's civil_from_days, shifted to an era starting 0000-03-01.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02}:{ss:02}Z")
+}
+
 /// Print the vault health report.
 ///
 /// Ordered by what the user should fix first: reuse, then weakness, then age. That is
@@ -1260,5 +1420,67 @@ fn print_json(value: &serde_json::Value) {
     match serde_json::to_string_pretty(value) {
         Ok(text) => println!("{text}"),
         Err(error) => eprintln!("keel: could not render JSON: {error}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timestamps_render_as_utc() {
+        // Hand-checked values. Calendar arithmetic is the kind of code that looks right
+        // and is wrong at boundaries, so the cases are chosen to sit on them: epoch,
+        // a leap day, the day after a leap day, century non-leap and quadricentennial
+        // leap years, and a year boundary.
+        let cases = [
+            (0u64, "1970-01-01 00:00:00Z"),
+            (1, "1970-01-01 00:00:01Z"),
+            (86_399, "1970-01-01 23:59:59Z"),
+            (86_400, "1970-01-02 00:00:00Z"),
+            // 2000-02-29: a leap year because it is divisible by 400.
+            (951_782_400, "2000-02-29 00:00:00Z"),
+            (951_868_800, "2000-03-01 00:00:00Z"),
+            // 2100 is NOT a leap year (divisible by 100, not by 400), so 28 February is
+            // followed directly by 1 March. Getting this wrong is the classic calendar
+            // bug, and the naive "divisible by 4" rule fails exactly here.
+            (4_107_456_000, "2100-02-28 00:00:00Z"),
+            (4_107_542_400, "2100-03-01 00:00:00Z"),
+            // Year boundary.
+            (1_735_689_599, "2024-12-31 23:59:59Z"),
+            (1_735_689_600, "2025-01-01 00:00:00Z"),
+            // A leap day in an ordinary leap year.
+            (1_709_164_800, "2024-02-29 00:00:00Z"),
+        ];
+        for (unix, expected) in cases {
+            assert_eq!(format_timestamp(unix), expected, "for {unix}");
+        }
+    }
+
+    #[test]
+    fn timestamp_rendering_does_not_panic_on_extremes() {
+        // The value comes off the wire, so it can be anything a u64 holds.
+        for unix in [u64::MAX, u64::MAX - 1, 1 << 62, 1 << 40] {
+            let _ = format_timestamp(unix);
+        }
+    }
+
+    #[test]
+    fn titles_are_truncated_on_character_boundaries() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("exactlyten", 10), "exactlyten");
+        assert_eq!(truncate("this is far too long", 10), "this is f…");
+        // Multi-byte characters must not be split, which byte slicing would do.
+        assert_eq!(truncate("日本語のパスワード帳です", 5), "日本語の…");
+        assert_eq!(truncate("🔐🔐🔐🔐🔐🔐", 3), "🔐🔐…");
+    }
+
+    #[test]
+    fn plurals_read_correctly() {
+        assert_eq!(plural(1), "y");
+        assert_eq!(plural(0), "ies");
+        assert_eq!(plural(2), "ies");
+        assert_eq!(plural_s(1), "");
+        assert_eq!(plural_s(2), "s");
     }
 }

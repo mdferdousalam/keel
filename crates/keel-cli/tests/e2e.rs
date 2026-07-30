@@ -597,3 +597,115 @@ fn the_health_report_is_machine_readable_and_carries_no_password_field() {
     assert!(json.contains("\"reused\""), "got: {json}");
     assert!(json.contains("\"examined\": 2"), "got: {json}");
 }
+
+#[test]
+fn the_audit_chain_survives_locking_and_unlocking() {
+    // The regression test for a bug that would have made the audit log worse than
+    // useless. `AuditLog::new` starts at sequence 1 with a zero predecessor, so a second
+    // session appended records numbered from 1 onto the existing chain and broke it at
+    // the join. A user who did nothing but lock and unlock — the normal daily cycle —
+    // would open `keel log` and be told their audit log had been tampered with.
+    //
+    // Nothing here tampers with anything. Any result other than an intact chain is the
+    // bug returning.
+    let fixture = Fixture::new();
+    fixture.init();
+    fixture.ok(&["add", "Bank", "--username", "ada"]);
+
+    let first = fixture.ok(&["log", "--json"]);
+    assert!(
+        first.contains("\"state\": \"intact\""),
+        "the chain should be intact in the first session: {first}"
+    );
+
+    for cycle in 0..3 {
+        fixture.ok(&["lock"]);
+        fixture.ok(&["unlock"]);
+        fixture.ok(&["add", &format!("Site{cycle}"), "--username", "ada"]);
+
+        let log = fixture.ok(&["log", "--json"]);
+        assert!(
+            log.contains("\"state\": \"intact\""),
+            "after lock/unlock cycle {cycle} the chain should still be intact, and nothing \
+             has tampered with it: {log}"
+        );
+    }
+
+    // The log must also have actually grown, or "intact" could be hiding a reset.
+    let final_log = fixture.ok(&["log", "--json"]);
+    let total: u64 = final_log
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("\"total\":"))
+        .and_then(|v| v.trim().trim_end_matches(',').parse().ok())
+        .unwrap_or_default();
+    assert!(
+        total >= 12,
+        "the log should have accumulated records across sessions, got {total}: {final_log}"
+    );
+}
+
+#[test]
+fn removing_records_from_the_end_of_the_audit_log_is_detected() {
+    // A hash chain cannot catch this on its own: records 1..k are a valid chain for any
+    // k, so deleting the most recent entries leaves a log that verifies cleanly. That is
+    // what the vault's stored anchor is for.
+    let fixture = Fixture::new();
+    fixture.init();
+    for title in ["A", "B", "C", "D"] {
+        fixture.ok(&["add", title, "--username", "ada"]);
+    }
+    let before = fixture.ok(&["log", "--json"]);
+    assert!(before.contains("\"state\": \"intact\""), "got: {before}");
+
+    fixture.ok(&["lock"]);
+
+    // Remove whole records from the end, cutting exactly on a frame boundary so no
+    // partial record is left. A partial record would be reported as a truncation, which
+    // an interrupted write also produces and which is therefore not evidence of anything.
+    let path = fixture.vault.with_extension("keel.audit");
+    let bytes = std::fs::read(&path).expect("read the audit log");
+    let header = 10; // magic(8) + version(2)
+    let mut offsets = Vec::new();
+    let mut at = header;
+    while at + 4 <= bytes.len() {
+        let len = u32::from_le_bytes(
+            bytes[at..at + 4]
+                .try_into()
+                .expect("a 4-byte length prefix"),
+        ) as usize;
+        let end = at + 4 + len;
+        if end > bytes.len() {
+            break;
+        }
+        offsets.push(end);
+        at = end;
+    }
+    assert!(
+        offsets.len() >= 8,
+        "expected several whole records, found {}",
+        offsets.len()
+    );
+    // Cut deep enough to go *below* the anchor. The anchor is stamped when the vault is
+    // saved, and it commits only to records already flushed at that moment, so it is a
+    // floor rather than an exact count: records appended after the last save — including
+    // that save's own record and the subsequent lock — can be removed without detection.
+    // That boundary is a real and documented limitation, not an oversight, and narrowing
+    // it would cost a vault write per audit record. Keeping five records puts the
+    // deletion firmly under the floor.
+    let keep = offsets[4];
+    std::fs::write(&path, &bytes[..keep]).expect("truncate the audit log");
+
+    fixture.ok(&["unlock"]);
+    let after = fixture.ok(&["log", "--json"]);
+    assert!(
+        after.contains("\"state\": \"tail_altered\""),
+        "removing records from the end should be detected, got: {after}"
+    );
+
+    // And the human-readable form must say so prominently rather than burying it.
+    let human = fixture.ok(&["log"]);
+    assert!(
+        human.contains("WARNING"),
+        "the warning should be prominent: {human}"
+    );
+}

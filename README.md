@@ -129,6 +129,20 @@ keel grants
 keel revoke claude-code
 ```
 
+Checking on your passwords, and on what has been touching them:
+
+```sh
+keel audit          # which stored passwords are reused, weak, or old
+keel log            # recent vault activity, with the audit chain verified
+```
+
+`keel audit` decrypts every record to do its work, so it is available only from the
+command line and the desktop app — never to an AI agent or the browser extension,
+whatever they have been granted. It prints no password values. `keel log` reports
+whether the hash chain verifies; see
+[the threat model](docs/threat-model.md#what-the-audit-log-does-and-does-not-prove)
+for what that does and does not prove.
+
 See [`docs/cli.md`](docs/cli.md) and [`docs/mcp.md`](docs/mcp.md).
 
 ## Building and checking
@@ -180,7 +194,7 @@ Stated so nothing here is mistaken for a bug:
   is not written. macOS and Linux work.
 - **Signed releases.** No signing keys exist yet, so `keel verify-release` refuses rather than
   pretending to verify anything.
-- **`keel export` and `keel audit`.**
+- **`keel export`.**
 
 ## Licence
 
