@@ -421,6 +421,14 @@ pub fn connect(_path: &Path) -> Result<Connection> {
 }
 
 /// Resolve a pid to an executable path, best effort.
+///
+/// Unreachable on platforms without a transport — its only caller is inside the `cfg(unix)`
+/// `accept` — so the dead-code warning is silenced there rather than everywhere. Same
+/// reasoning as `keel_client`'s `handshake`: keeping the crate compiling on Windows means the
+/// portable code is known-good when the named-pipe transport arrives, and that transport will
+/// want this function, since `GetNamedPipeClientProcessId` gives a pid needing exactly this
+/// treatment.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn executable_for_pid(pid: u32) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
