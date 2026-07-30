@@ -1,5 +1,75 @@
 # Keel — Open-Source, Post-Quantum-Resistant Password Manager
 
+## Build status
+
+| Phase | State | Notes |
+|---|---|---|
+| 0 — Skeleton, CI, gates, docs | **Done** | Both architectural gates verified to fail when violated |
+| 1 — keel-crypto, keel-format, keel-hardening | **Done** | ~35M fuzz executions, zero crashes |
+| 2 — keel-store, keel-core | **Done** | Crash safety verified by SIGKILL; policy engine complete |
+| 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Works end to end; 18 e2e tests |
+| 3 — keel-reveal | Not started | Native non-capturable overlay for plaintext display |
+| 4 — Tauri desktop GUI | Not started | |
+| 5 — Browser extension + import | Not started | |
+| 6 — MCP server | Not started | Policy engine and protocol already support it |
+| 7 — Release pipeline | Not started | |
+
+**Currently working:** `keel init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
+`get`, `rotate`, `rm`, `generate`, `save`, with `--json` throughout. 326 unit tests plus
+18 end-to-end; clippy clean under `-D warnings`.
+
+**Not working yet, deliberately loud about it:** clipboard and synthetic typing need the
+desktop app and fail with a clear message rather than pretending; `import`, `export`, and
+`audit` are unimplemented; Windows needs a named-pipe transport that is not written.
+
+## Decisions that changed during implementation
+
+Each of these came out of a test failure or a lint, and each is a correction to the plan
+below rather than a deviation from it. They are recorded here because the reasoning matters
+more than the outcome.
+
+1. **The header needs two hashes, not one.** Binding records to the full header hash meant
+   changing the master passphrase invalidated every record in the vault — destroying the
+   reason the design separates the key-encryption key from the vault master key.
+   `binding_hash` (wide) authenticates the wrapped key and blocks a KDF downgrade;
+   `identity_hash` (narrow: format version, vault id, AEAD id) authenticates the manifest
+   and records. Caught by an integration test.
+
+2. **Records precede the manifest on disk.** The manifest stores record offsets and postcard
+   varint-encodes them, so manifest length would otherwise depend on offsets that depend on
+   manifest length. Records first removes the cycle.
+
+3. **The write counter advances before encoding, not after.** Incrementing afterwards made
+   the recorded "last seen" value one higher than the file's, so every reopen looked like a
+   rollback.
+
+4. **Trashed entries keep their records.** Soft delete means the record index spans live and
+   trashed entries, in the encoder, the integrity check, and validation.
+
+5. **The agent uses threads, not an async runtime.** It serialises a handful of local
+   clients, and dropping tokio removes a large amount of code from the address space holding
+   the master key.
+
+6. **`fd-lock` dropped for `std::fs::File::try_lock`** (stable since 1.89). The lock is tied
+   to the file descriptor, so a crash cannot leave a vault permanently locked. MSRV 1.89.
+
+7. **Rate limits are per client type.** Applying agent limits to the desktop app capped it at
+   ten clipboard copies an hour — protecting nothing, since someone with the passphrase can
+   already read the whole vault, while making the app unusable.
+
+8. **The coverage cap counts every secret-touching operation.** Counting only reveals made it
+   unreachable behind a 5-per-hour reveal limit, so it was dead code. A const assertion now
+   keeps the two limits consistent.
+
+9. **Escape sequences are stripped whole.** Removing only the ESC byte left the literal text
+   `[31m`, which is both noise and a way to build misleading strings out of apparently
+   sanitised text.
+
+10. **Size limits are compile-time assertions**, so an inconsistent limit fails the build.
+
+---
+
+
 ## Context
 
 Greenfield project (directory is empty). Build a free, open-source password manager engineered to the highest practical security bar: an attacker who steals the vault file, compromises GitHub, or wields a future quantum computer still cannot recover a single password without the master password.
