@@ -13,9 +13,10 @@ their tools rather than trust them.
   server, no account, no sync service, and no telemetry. If you want the file on
   several machines, put it in whatever cloud drive you already use — it is
   already encrypted before it ever touches the filesystem.
-* **One vault, every surface.** A desktop app, a command-line tool, a browser
-  extension, and an MCP server for AI agents, all talking to one hardened local
-  process that holds the keys.
+* **One vault, every surface.** A command-line tool and an MCP server for AI agents today, a
+  desktop app and browser extension to come — all talking to one hardened local process that
+  holds the keys. Nothing else in the system can decrypt anything, and a CI check enforces
+  that rather than trusting it.
 * **Auditable.** Every line is public. The security comes from the design, not
   from hiding the source.
 
@@ -94,17 +95,55 @@ Homebrew, Scoop, or your Linux package manager to avoid them, and see the instal
 docs for why reproducible builds plus offline signatures are a stronger integrity
 guarantee than a purchased certificate.
 
-## Building from source
+## Trying it
 
 ```sh
 git clone https://github.com/keel-vault/keel
 cd keel
-cargo test --workspace     # run the test suite
-cargo xtask check          # run the architectural gates
+cargo build --release
+
+./target/release/keel init          # create a vault
+./target/release/keel add "Example Bank" --username you@example.com
+./target/release/keel list
+./target/release/keel get "Example Bank" --show
 ```
 
-The pinned toolchain is in `rust-toolchain.toml`; rustup will honour it
-automatically.
+`keel add` generates a 20-character password (~129 bits) and never prints it. `keel get`
+copies rather than printing unless you pass `--show`, because a password on a terminal lives
+on in scrollback.
+
+Migrating from another manager:
+
+```sh
+keel import ~/Downloads/passwords.csv --dry-run   # see what it found
+keel import ~/Downloads/passwords.csv --shred     # import, then delete the file
+```
+
+Giving an AI agent access — it starts with nothing, and you grant explicitly:
+
+```sh
+keel grant claude-code --scope metadata --scope use --tag 'work/*' --minutes 30
+keel grants
+keel revoke claude-code
+```
+
+See [`docs/cli.md`](docs/cli.md) and [`docs/mcp.md`](docs/mcp.md).
+
+## Building and checking
+
+```sh
+cargo test --workspace     # the test suite
+cargo xtask check          # the architectural gates
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The pinned toolchain is in `rust-toolchain.toml`; rustup will honour it automatically.
+
+`cargo xtask check` is worth understanding: it enforces two claims this README makes, rather
+than leaving them to discipline. `check-layering` fails the build if any client crate gains
+access to the cryptographic core, and `check-network` walks the resolved dependency graph and
+fails if any HTTP or TLS crate becomes reachable from the vault. Both were verified to fail
+when violated, not merely to pass when clean.
 
 ## Repository layout
 
@@ -120,11 +159,26 @@ automatically.
 | `crates/keel-cli` | The `keel` command. |
 | `crates/keel-mcp` | MCP server for AI agents. |
 | `crates/keel-native-host` | Browser native-messaging bridge. |
-| `apps/desktop` | Tauri desktop application. |
-| `extension` | Browser extension. |
+| `crates/keel-import` | CSV importers. Depends on no other Keel crate. |
+| `apps/desktop` | Tauri desktop application. Not yet built. |
+| `extension` | Browser extension. Not yet built. |
 
 Dependency direction is enforced by `cargo xtask check-layering`; see
 [`docs/architecture.md`](docs/architecture.md).
+
+## What is not built yet
+
+Stated so nothing here is mistaken for a bug:
+
+- **The desktop app and browser extension.** Because of that, `keel get` without `--show`
+  reports that it needs the desktop app rather than silently doing nothing — a user who
+  believes a password was copied and then pastes stale clipboard contents into a login form
+  has been actively misled.
+- **Windows.** The agent needs a named-pipe transport with a current-user-only DACL, and that
+  is not written. macOS and Linux work.
+- **Signed releases.** No signing keys exist yet, so `keel verify-release` refuses rather than
+  pretending to verify anything.
+- **`keel export` and `keel audit`.**
 
 ## Licence
 
