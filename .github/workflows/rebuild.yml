@@ -61,7 +61,7 @@ jobs:
           # would produce a different — and legitimately non-matching — build.
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         if: steps.tag.outputs.tag != ''
         with:
           # Deliberately not pinned here: the checked-out rust-toolchain.toml decides, which is
