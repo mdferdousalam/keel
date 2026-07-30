@@ -260,6 +260,12 @@ pub struct PassphrasePolicy {
     /// Number of words. Each contributes 12.925 bits.
     pub words: usize,
     /// Character placed between words.
+    ///
+    /// Defaults to `-`, matching what every other password manager uses and what users expect
+    /// to type. Note that four words in the bundled list contain a hyphen, so a
+    /// hyphen-separated phrase cannot always be split back into its words unambiguously. That
+    /// costs no entropy — words are chosen by index, never by their text — but code that needs
+    /// to count words must not do it by splitting on the separator.
     pub separator: char,
     /// Capitalize the first letter of each word.
     ///
@@ -507,9 +513,56 @@ mod tests {
 
     #[test]
     fn passphrase_has_requested_word_count() {
-        let p = PassphrasePolicy::default();
-        let phrase = generate_passphrase(&p).unwrap();
-        assert_eq!(phrase.expose().split('-').count(), 6);
+        // Counted with a separator that cannot occur inside a word. Splitting on the *default*
+        // separator would be wrong: four EFF words contain a hyphen ("drop-down", "felt-tip",
+        // "t-shirt", "yo-yo"), so `split('-')` over-counts about 0.3% of six-word phrases.
+        // An earlier version of this test did exactly that and failed once every few hundred
+        // runs.
+        let policy = PassphrasePolicy {
+            separator: ' ',
+            ..PassphrasePolicy::default()
+        };
+        let phrase = generate_passphrase(&policy).unwrap();
+        assert_eq!(phrase.expose().split(' ').count(), 6);
+
+        for words in [3usize, 7, 12] {
+            let policy = PassphrasePolicy {
+                words,
+                separator: ' ',
+                capitalize: false,
+            };
+            let phrase = generate_passphrase(&policy).unwrap();
+            assert_eq!(phrase.expose().split(' ').count(), words);
+        }
+    }
+
+    #[test]
+    fn a_hyphen_separator_can_produce_more_hyphens_than_word_boundaries() {
+        // Documents the consequence of the default separator, so nobody "fixes" a passphrase
+        // counter by splitting on it again.
+        //
+        // Four words in the EFF list contain a hyphen, so a hyphen-separated phrase is not
+        // unambiguously splittable. This costs no entropy — words are chosen by index, not by
+        // their text — and the hyphen is kept as the default because it is the convention every
+        // other password manager uses and what users expect to type. The only cost is that a
+        // human reading a phrase back cannot always tell where one word ended.
+        let hyphenated: Vec<&&str> = wordlist().iter().filter(|w| w.contains('-')).collect();
+        assert!(
+            !hyphenated.is_empty(),
+            "this test is meaningless if the wordlist has no hyphenated words"
+        );
+        assert_eq!(
+            hyphenated.len(),
+            4,
+            "wordlist changed; revisit the note above"
+        );
+
+        // Construct the situation directly rather than waiting for chance.
+        let phrase = format!("alpha-{}-omega", hyphenated[0]);
+        assert!(
+            phrase.split('-').count() > 3,
+            "a hyphenated word should split into more parts than there are words"
+        );
     }
 
     #[test]
