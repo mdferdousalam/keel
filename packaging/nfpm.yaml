@@ -18,7 +18,7 @@ description: |
   account, and no telemetry. The vault is encrypted with XChaCha20-Poly1305 under a key
   derived by Argon2id, and only one process ever holds the keys.
 vendor: Keel
-homepage: https://github.com/keel-vault/keel
+homepage: https://github.com/mdferdousalam/keel
 license: GPL-3.0-or-later
 
 # Deliberately empty. Keel links no HTTP or TLS stack and needs no runtime libraries beyond

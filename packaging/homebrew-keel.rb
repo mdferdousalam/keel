@@ -1,6 +1,6 @@
 # Homebrew formula for the Keel CLI and agent.
 #
-# Lives in a tap (`keel-vault/homebrew-keel`) rather than homebrew-core, which has notability
+# Lives in a tap (`mdferdousalam/homebrew-keel`) rather than homebrew-core, which has notability
 # requirements a new project does not meet. Copied there on release; kept here so it is
 # reviewed alongside the code it installs.
 #
@@ -9,13 +9,13 @@
 # ships without a paid Developer ID. See packaging/README.md.
 class Keel < Formula
   desc "Local-first password manager with no server, no account, and no telemetry"
-  homepage "https://github.com/keel-vault/keel"
+  homepage "https://github.com/mdferdousalam/keel"
   license "GPL-3.0-or-later"
   version "0.0.0-unreleased"
 
   # Filled in at release. Left obviously invalid rather than as a plausible-looking
   # placeholder: a wrong-but-real-shaped hash is a hash somebody might not check.
-  url "https://github.com/keel-vault/keel/releases/download/v#{version}/keel-#{version}-macos-universal.tar.gz"
+  url "https://github.com/mdferdousalam/keel/releases/download/v#{version}/keel-#{version}-macos-universal.tar.gz"
   sha256 "REPLACE_WITH_THE_PUBLISHED_SHA256"
 
   depends_on "rust" => :build

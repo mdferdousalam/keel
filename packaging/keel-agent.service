@@ -7,7 +7,7 @@
 # only for people who prefer it under the service manager.
 [Unit]
 Description=Keel password manager agent
-Documentation=https://github.com/keel-vault/keel
+Documentation=https://github.com/mdferdousalam/keel
 # The agent needs a session to find its runtime directory and to observe screen-lock events.
 PartOf=graphical-session.target
 

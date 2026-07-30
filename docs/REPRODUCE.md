@@ -25,7 +25,7 @@ reproducible for a year.
 ## Rebuilding
 
 ```sh
-git clone https://github.com/keel-vault/keel
+git clone https://github.com/mdferdousalam/keel
 cd keel
 git checkout v1.0.0          # the tag you are checking
 

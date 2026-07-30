@@ -16,7 +16,7 @@ your time more than mine.
 ## Getting set up
 
 ```sh
-git clone https://github.com/keel-vault/keel
+git clone https://github.com/mdferdousalam/keel
 cd keel
 cargo test --workspace      # test suite
 cargo xtask check           # architectural gates

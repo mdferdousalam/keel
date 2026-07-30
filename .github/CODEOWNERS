@@ -2,23 +2,23 @@
 # mistake is a vulnerability rather than a bug. Listing them separately makes that
 # visible in the pull request UI and prevents a drive-by merge.
 
-*                           @keel-vault/maintainers
+*                           @mdferdousalam
 
 # The cryptographic core and the on-disk format: a mistake here is
 # unrecoverable for anyone who already saved a vault.
-/crates/keel-crypto/        @keel-vault/maintainers
-/crates/keel-format/        @keel-vault/maintainers
+/crates/keel-crypto/        @mdferdousalam
+/crates/keel-format/        @mdferdousalam
 
 # The only crate permitted `unsafe`.
-/crates/keel-hardening/     @keel-vault/maintainers
+/crates/keel-hardening/     @mdferdousalam
 
 # The only process that holds unlocked keys, plus the policy chokepoint.
-/crates/keel-agent/         @keel-vault/maintainers
-/crates/keel-core/          @keel-vault/maintainers
+/crates/keel-agent/         @mdferdousalam
+/crates/keel-core/          @mdferdousalam
 
 # Editing these edits a security boundary that CI enforces.
-/xtask/src/rules.rs         @keel-vault/maintainers
-/deny.toml                  @keel-vault/maintainers
+/xtask/src/rules.rs         @mdferdousalam
+/deny.toml                  @mdferdousalam
 
 # Release integrity: the signing and provenance flow.
-/.github/workflows/         @keel-vault/maintainers
+/.github/workflows/         @mdferdousalam

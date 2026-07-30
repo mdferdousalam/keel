@@ -90,7 +90,7 @@ transition is a reason to stop.
 Releases also carry Sigstore-backed SLSA provenance:
 
 ```sh
-gh attestation verify keel-1.0.0-x86_64-unknown-linux-musl.tar.gz --repo keel-vault/keel
+gh attestation verify keel-1.0.0-x86_64-unknown-linux-musl.tar.gz --repo mdferdousalam/keel
 ```
 
 This proves which workflow, which commit, and which builder produced the artifact, and it is

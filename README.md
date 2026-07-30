@@ -100,7 +100,7 @@ guarantee than a purchased certificate.
 ## Trying it
 
 ```sh
-git clone https://github.com/keel-vault/keel
+git clone https://github.com/mdferdousalam/keel
 cd keel
 cargo build --release
 
