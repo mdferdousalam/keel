@@ -121,6 +121,18 @@ keel import ~/Downloads/passwords.csv --dry-run   # see what it found
 keel import ~/Downloads/passwords.csv --shred     # import, then delete the file
 ```
 
+Filling passwords in a browser:
+
+```sh
+keel setup-browser --extension-id <ID>   # registers the bridge; see extension/README.md
+```
+
+Nothing of Keel's runs on a page until you click the toolbar button — there is no
+`<all_urls>` permission and no content script injected on load. That rules out
+detect-and-offer-on-page-load, which is the root of most extension credential-leak CVEs.
+Matching is decided by the agent, not the extension: a stored entry fills its own site and
+its subdomains, and never a look-alike, a different port, or an `http` page.
+
 There is a desktop window too — `keel-desktop` — which does everything above without a
 terminal, shows the health report and the activity log, and is where approval prompts for AI
 requests appear. It never receives a password: entries show as bullets, and copying is done
@@ -210,7 +222,9 @@ Dependency direction is enforced by `cargo xtask check-layering`; see
 
 Stated so nothing here is mistaken for a bug:
 
-- **The browser extension.** Autofill needs it; everything else works without it.
+- **Pairing between the extension and the agent.** The plan calls for a SAS code and a Noise
+  channel. Not built. Its value is against a same-user process impersonating the browser,
+  which is outside the threat model the rest of Keel is written against — but it is a real gap.
 - **Revealing a password on screen.** By design this belongs in a small native overlay that
   no webview can read, and that overlay is not built. Copy to the clipboard instead, or use
   `keel get --show` at a terminal.

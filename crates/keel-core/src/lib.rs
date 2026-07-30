@@ -27,6 +27,7 @@ pub mod audit;
 pub mod autolock;
 pub mod error;
 pub mod health;
+pub mod origin;
 pub mod policy;
 pub mod vault;
 

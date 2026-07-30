@@ -542,6 +542,15 @@ pub fn render(name: &str, response: &Response) -> ToolResult {
              by the user in the Keel window or with `keel settings`.",
         ),
 
+        // A browser fill. Only the extension can ask for one, and only for an origin the
+        // browser itself reported — so this arm is unreachable. It drops the payload without
+        // rendering it: this variant carries a password, and turning it into model-visible
+        // text would be the disclosure.
+        Response::Fill { .. } => ToolResult::failure(
+            "Keel returned a credential for a browser fill, which no tool here requests and \
+             which this server will not relay. Filling is done by the Keel extension.",
+        ),
+
         Response::Hello { .. } => ToolResult::text("Connected."),
 
         Response::Error { code, message } => {

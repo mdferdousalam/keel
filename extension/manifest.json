@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Keel",
+  "version": "0.1.0",
+  "description": "Fill passwords from your local Keel vault. No account, no server, no telemetry.",
+  "minimum_chrome_version": "116",
+
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "scripting"
+  ],
+
+  "host_permissions": [],
+
+  "action": {
+    "default_title": "Keel",
+    "default_popup": "popup.html",
+    "default_icon": { "128": "icon.png" }
+  },
+
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+
+  "icons": { "128": "icon.png" },
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  },
+
+  "web_accessible_resources": []
+}

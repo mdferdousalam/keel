@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Keel</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <!--
+      The popup is browser chrome. A page cannot overlay it, read it, or synthesise a click
+      in it, which is why the choice of which credential to fill is made here rather than in
+      an element injected into the page.
+    -->
+    <div id="root"></div>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

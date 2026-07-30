@@ -275,6 +275,10 @@ impl Session {
             Request::AuditTail { limit } => self.handle_audit_tail(&client, limit),
             Request::VaultHealth => self.handle_vault_health(&client),
             Request::PendingApprovals => self.handle_pending_approvals(&client),
+            Request::CandidatesForOrigin { origin } => self.handle_candidates(&client, &origin),
+            Request::FillCredential { reference, origin } => {
+                self.handle_fill(&client, &reference, &origin)
+            }
             Request::ReadSettings => self.handle_read_settings(&client),
             Request::SetMcpRevealEnabled { enabled } => {
                 self.handle_set_mcp_reveal(&client, enabled)
@@ -1112,6 +1116,145 @@ impl Session {
         Ok(Response::Ok)
     }
 
+    /// Entries that may be filled into a page.
+    ///
+    /// Browser bridge only, and matching happens here rather than in the extension. That
+    /// placement is the point: the rules that stop a look-alike domain from collecting a
+    /// password live in one auditable module in the process that holds the vault, not in a
+    /// browser extension that an attacker who controls the page is much closer to.
+    fn handle_candidates(&mut self, client: &Client, origin: &str) -> Result<Response> {
+        Self::require_browser(client)?;
+        let request_origin = parse_fill_origin(origin)?;
+        self.authorize(
+            client,
+            &Operation::Search {
+                query_len: MIN_ORIGIN_QUERY,
+            },
+            None,
+        )?;
+
+        let mut state = self.lock_state()?;
+        state.touch();
+        let entries: Vec<keel_format::manifest::EntryMeta> = state.vault()?.entries().to_vec();
+        let matches = keel_core::origin::candidates_for(&entries, &request_origin);
+
+        let mut summaries = Vec::with_capacity(matches.len());
+        for candidate in matches {
+            let Some(meta) = entries.iter().find(|e| e.record_id == candidate.id) else {
+                continue;
+            };
+            let reference = state.handle_for(&candidate.id)?;
+            summaries.push(EntrySummary {
+                reference,
+                title: meta.title.clone(),
+                username: meta.username.clone(),
+                origins: meta.origins.clone(),
+                tags: meta.tags.clone(),
+                has_totp: meta.has_totp,
+                updated_at: meta.updated_at,
+                password_changed_at: meta.password_changed_at,
+            });
+        }
+        // Not audited per page load. A record for every navigation would bury the events that
+        // matter — the fills — under noise, and the fill itself is what touches a secret.
+        Ok(Response::Entries {
+            truncated: false,
+            entries: summaries,
+        })
+    }
+
+    /// Hand one credential to the browser bridge for one verified fill.
+    ///
+    /// The only request that gives plaintext to the extension. Four things stand between it
+    /// and a phishing page:
+    ///
+    /// 1. **Browser bridge only.** An AI agent cannot reach this, and cannot name an origin.
+    /// 2. **The origin comes from the browser**, not the page, and is re-parsed here rather
+    ///    than trusted as a string.
+    /// 3. **The entry must already claim that origin.** Checked against the entry's own
+    ///    stored origins under the rules in [`keel_core::origin`] — no wildcards, no
+    ///    substrings, and never an `https` credential into an `http` page.
+    /// 4. **It is audited**, with the entry, every time.
+    ///
+    /// The origin is echoed back so the extension can confirm the page has not navigated
+    /// between asking and writing, which closes the gap where a page redirects during the
+    /// round trip.
+    fn handle_fill(
+        &mut self,
+        client: &Client,
+        reference: &EntryRef,
+        origin: &str,
+    ) -> Result<Response> {
+        Self::require_browser(client)?;
+        let request_origin = parse_fill_origin(origin)?;
+        let id = self.lock_state()?.resolve(reference)?;
+
+        let destination = Destination::FillInBrowser {
+            origin: request_origin.display(),
+            browser: client.id.clone(),
+        };
+        let operation = Operation::UseSecret {
+            entry: id,
+            destination,
+        };
+        self.authorize(client, &operation, Some(id))?;
+
+        let mut state = self.lock_state()?;
+        state.touch();
+
+        // The entry must itself claim this origin. Authorisation covered "may this client use
+        // this entry"; this covers "does this entry belong on this page", which is the
+        // question a scope cannot answer.
+        let meta = state
+            .vault()?
+            .entry(&id)
+            .map_err(|e| Failure::from_core(&e))?;
+        let claims_origin = meta.origins.iter().any(|raw| {
+            keel_core::origin::Origin::parse(raw)
+                .is_some_and(|stored| stored.covers(&request_origin))
+        });
+        if !claims_origin {
+            state.audit(client, "fill_credential", Some(id), Outcome::Denied, None);
+            state.flush_audit();
+            return Err(Failure::new(
+                ErrorCode::Denied,
+                format!(
+                    "that entry is not stored for {} — Keel will not fill a password into a \
+                     site the entry does not list, because that is how a look-alike domain \
+                     collects one",
+                    request_origin.display()
+                ),
+            ));
+        }
+
+        let body = state
+            .vault()?
+            .reveal(&id)
+            .map_err(|e| Failure::from_core(&e))?;
+        let username = body.username.clone();
+        let password = body.password.clone();
+        drop(body);
+
+        state.audit(client, "fill_credential", Some(id), Outcome::Allowed, None);
+        state.flush_audit();
+        Ok(Response::Fill {
+            username,
+            password,
+            origin: request_origin.display(),
+        })
+    }
+
+    /// Refuse anything that is not the verified browser bridge.
+    fn require_browser(client: &Client) -> Result<()> {
+        if client.client_type == keel_core::policy::ClientType::Extension {
+            return Ok(());
+        }
+        Err(Failure::new(
+            ErrorCode::Denied,
+            "only the Keel browser extension may ask about page origins or fill credentials",
+        ))
+    }
+
     /// Read the vault's settings.
     fn handle_read_settings(&mut self, client: &Client) -> Result<Response> {
         self.authorize(client, &Operation::Status, None)?;
@@ -1274,10 +1417,18 @@ impl Session {
                 // destination in an approval dialog is worse than an unspecific one.
                 window: "the focused window".to_owned(),
             }),
-            SecretAction::FillInBrowser { .. } => Err(Failure::new(
-                ErrorCode::BadRequest,
-                "browser fill requires the Keel browser extension, which is not connected",
-            )),
+            SecretAction::FillInBrowser { origin } => {
+                // Reached only through `use_secret`. The dedicated `FillCredential` request
+                // is what the extension actually uses; this exists so that an AI agent
+                // asking for a browser fill gets a precise refusal rather than a confusing
+                // one, and so the origin it supplied is never treated as authoritative.
+                let _ = origin;
+                Err(Failure::new(
+                    ErrorCode::Denied,
+                    "browser fill is performed by the Keel extension, which supplies the page \
+                     origin itself. A client cannot name the destination for a fill.",
+                ))
+            }
         }
     }
 }
@@ -1412,6 +1563,28 @@ fn materialise_secret(source: &SecretSource, state: &AgentState) -> Result<(Stri
             Ok((value, Some(entropy)))
         }
     }
+}
+
+/// Stand-in query length for an origin lookup.
+///
+/// Origin matching is not a text search, but it goes through the same rate limit, and the
+/// policy engine's minimum-length rule exists to stop enumeration by single characters. An
+/// origin is always longer than that.
+const MIN_ORIGIN_QUERY: usize = 8;
+
+/// Parse an origin supplied by the browser bridge.
+///
+/// Rejects rather than normalises. An origin that cannot be parsed cleanly is not a page a
+/// password should go into, and guessing what an attacker-adjacent string meant is how
+/// confusable hosts get through.
+fn parse_fill_origin(raw: &str) -> Result<keel_core::origin::Origin> {
+    keel_core::origin::Origin::parse(raw).ok_or_else(|| {
+        Failure::new(
+            ErrorCode::BadRequest,
+            "that is not an origin Keel will fill into; only http and https pages are \
+             eligible, and the origin must come from the browser",
+        )
+    })
 }
 
 /// Records returned by an audit tail when the caller does not say.

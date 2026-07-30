@@ -15,5 +15,19 @@ workspace = true
 name = "keel-native-host"
 path = "src/main.rs"
 
-[dependencies]
+[lib]
+name = "keel_native_host"
+path = "src/lib.rs"
 
+# Note what is absent: keel-crypto, keel-core, keel-format, keel-store. This process is
+# launched by the browser and is the component closest to hostile input, so it is the one
+# that knows the least. `cargo xtask check-layering` fails the build if that changes.
+[dependencies]
+keel-client = { path = "../keel-client" }
+keel-proto = { path = "../keel-proto" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = { workspace = true }

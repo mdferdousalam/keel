@@ -429,6 +429,9 @@ pub fn variant_name(response: &Response) -> &'static str {
         Response::Exported { .. } => "export",
         Response::PendingApprovals { .. } => "pending approvals",
         Response::Settings(_) => "settings",
+        // Carries a password. Named, never rendered — the desktop shell cannot ask for one,
+        // so seeing it means something is wrong and quoting it would compound the problem.
+        Response::Fill { .. } => "browser fill",
         Response::ApprovalRequired { .. } => "approval required",
         Response::Error { .. } => "error",
     }

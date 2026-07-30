@@ -11,7 +11,7 @@
 | 3 — keel-reveal | Not started | Native non-capturable overlay. The only thing blocking on-screen reveal in the GUI. |
 | 4 — Tauri desktop GUI | **Done** | Masked-only window, approval dialogs, health, activity, access, settings. Canary test verified to fail when a leak is injected. |
 | 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects |
-| 5 — Browser extension | Not started | Native host, MV3 extension, SAS pairing |
+| 5 — Browser extension | **Done, minus pairing** | `keel-native-host`, MV3 extension, `keel setup-browser`. Origin matching in the agent, with every look-alike case tested. SAS pairing and the Noise channel are not built. |
 | 6 — MCP server | **Done** | Both halves verified: the default cannot leak a password, and the opt-in works one request at a time |
 | 7 — Release pipeline | **Mostly done** | Signing keys not generated; packaging configs not written |
 
@@ -26,7 +26,9 @@
   can read. Not built, so the GUI has no reveal at all — copy instead.
 - **Typing into the focused window.** Refused until it can verify which window has focus;
   without that it is worse than the clipboard.
-- **Browser fill and autofill.** Needs the extension.
+- **Pairing between the extension and the agent.** SAS code plus a Noise channel, per §6.3.
+  Its value is against a same-user process impersonating the browser, which is outside the
+  threat model the rest of Keel is written against — recorded as a gap, not skipped quietly.
 - **Windows.** Needs the named-pipe transport with a current-user-only DACL.
 - **`--vault <path>`** from §11; the path comes from `KEEL_VAULT` or the agent's argv.
 - **The breach Bloom filter.** The strength estimator recognises structure and ~300 famous
@@ -50,7 +52,17 @@ choice:
 3. **zxcvbn was not adopted.** 37 crates including a backtracking regex engine, inside the
    process holding the master key, to answer "is this obviously terrible?". A focused
    structural estimator does that job and says what it is.
-4. **Escalations are raised without a GUI attached.** The plan failed closed by refusing to
+4. **No Public Suffix List.** The plan called for it. It is genuinely needed to derive a
+   *registrable domain from a request origin* — without it `bank.co.uk` and `evil.co.uk` both
+   reduce to `co.uk`. Keel asks the opposite question: does this **stored** origin, which the
+   user typed, cover this request origin? A dot-boundary suffix rule is sound in that
+   direction without a suffix list, and the list becomes necessary only if entry discovery
+   moves from exact lookup to registrable-domain grouping.
+5. **Browser fill has its own request rather than going through `use_secret`.** `use_secret`
+   promises to return no secret, and a browser fill necessarily hands one to the extension —
+   it has to set the value of an input. Overloading `use_secret` would have made its contract
+   a lie, so `FillCredential` says plainly what it does.
+6. **Escalations are raised without a GUI attached.** The plan failed closed by refusing to
    ask when no window was open. Once `keel approvals` existed, that told users on headless
    machines to open a window that does not exist there. Failing closed is preserved by the
    timeout instead — nothing is ever auto-approved.

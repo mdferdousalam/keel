@@ -292,6 +292,50 @@ Revisit this document when: the vault format version changes; a new IPC client
 type is added; the MCP tool surface changes; a network-capable dependency is
 introduced; or any approval flow is modified.
 
+## Autofill, and why it refuses more than it accepts
+
+Autofill is the feature most likely to hand a password to an attacker, because the attacker
+gets to choose the page. Keel's arrangement is shaped around that.
+
+**Nothing runs on a page until you ask.** There is no `<all_urls>` permission and no
+declaratively injected content script. Clicking the toolbar button is what causes any Keel
+code to touch a page. The cost is that Keel cannot notice a login form and offer to fill it as
+the page loads; that convenience is where most extension credential-leak CVEs come from,
+because it means privileged code parses untrusted page content on every site you visit.
+
+**The origin comes from the browser, never the page.** `tab.url` and `sender.origin` are set
+by the browser. `location.href` and `document.domain` are things a page says about itself, and
+on an attacker's page they say whatever the attacker wants.
+
+**Matching is decided in the agent.** The extension does not choose which entry fits a page;
+it asks. The rules live in one module in the process that holds the vault, rather than in a
+browser extension that sits much closer to hostile input: a stored origin covers its own host
+and subdomains of it at a dot boundary, ports must match, and a stored `https` credential is
+never filled into an `http` page. There are no wildcards and no substring matching, because
+there is no safe version of either. `chase.com.evil.tld`, `evil-chase.com`, and
+`chasecom.evil.tld` are all refused, and there are tests for each.
+
+**The fill itself is checked twice more.** The injected code re-reads
+`window.location.origin` before writing anything, which closes the window where a page
+navigates between the popup asking and the value arriving. It refuses to fill inside a frame,
+refuses a `readonly`, `disabled`, or invisible field, refuses a field that looks like a
+password field but is not one, and refuses a form whose `action` posts to a different origin.
+
+**What it does not defend against.** The extension necessarily receives the one credential it
+is filling — it has to set the value of an input. So a compromised browser gets the password
+for the site you are on when you click. Nothing in this design prevents that, and no design
+can: at the point where a password must reach a page, whatever renders the page can see it.
+What is prevented is bulk access — there is no request that returns more than the entries
+matching one origin, and no request that returns a password without an origin check.
+
+**Pairing is not built.** The plan calls for a SAS code and a Noise channel between extension
+and agent, so that a same-user process cannot impersonate the browser. It is not implemented.
+The `allowed_origins` field in the native-messaging manifest stops an arbitrary *extension*
+from launching the bridge, and stops nothing else: any process running as you can execute the
+bridge directly, or talk to the agent's socket. Same-user attackers are outside this threat
+model for every other component too, which is why this is recorded as a gap rather than
+treated as a hole in a claim.
+
 ## The desktop window, and the one secret that passes through it
 
 The window is a webview, which means a browser: a garbage-collected heap whose strings

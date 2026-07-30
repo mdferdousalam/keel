@@ -108,8 +108,13 @@ pub enum SecretAction {
     TypeIntoFocusedWindow,
     /// Fill into a browser tab.
     FillInBrowser {
-        /// Tab identifier, resolved to an origin by the agent.
-        tab_id: String,
+        /// Page origin **as the browser reported it** — `sender.origin` on a content-script
+        /// message, never anything the page said about itself.
+        ///
+        /// Accepted only from a client the agent has verified is the browser bridge. An AI
+        /// agent naming its own destination would defeat the entire point of showing the
+        /// destination in an approval dialog.
+        origin: String,
     },
 }
 
@@ -354,6 +359,36 @@ pub enum Request {
         /// How many records, most recent first. Capped by the agent.
         #[serde(default)]
         limit: Option<u32>,
+    },
+
+    /// Entries that may be filled into a page, masked.
+    ///
+    /// Browser bridge only. The origin comes from the browser, and matching is decided here
+    /// rather than in the extension so the rules live in one auditable place — see
+    /// [`keel_core::origin`] in the agent for what they are.
+    ///
+    /// Returns only entries that match. There is deliberately no request that returns every
+    /// entry for the extension to filter itself, because that would put the whole vault's
+    /// metadata in a browser process on every page load.
+    CandidatesForOrigin {
+        /// The page origin, from the browser.
+        origin: String,
+    },
+
+    /// Hand one credential to the browser bridge to fill into a verified page.
+    ///
+    /// Unlike [`Self::UseSecret`], this **does** return a secret, and saying so plainly is
+    /// better than pretending otherwise: the extension has to set the value of an input, so
+    /// it necessarily receives it. What makes that acceptable is everything around it — one
+    /// credential, for one user gesture, into an origin the agent has checked against the
+    /// entry's own stored origins, recorded in the audit log.
+    ///
+    /// Browser bridge only.
+    FillCredential {
+        /// Which entry.
+        reference: EntryRef,
+        /// The page origin, from the browser. Re-checked here against the entry.
+        origin: String,
     },
 
     /// Read the vault's settings.
@@ -605,6 +640,17 @@ pub enum Response {
         chain: ChainState,
         /// Total records in the log, which may exceed the number returned.
         total: u64,
+    },
+
+    /// One credential, for one verified fill.
+    Fill {
+        /// Username to type.
+        username: String,
+        /// Password to type. The only place this protocol hands plaintext to the browser.
+        password: String,
+        /// The origin the agent verified, echoed so the extension can confirm the page has
+        /// not navigated between asking and filling.
+        origin: String,
     },
 
     /// The vault's settings.

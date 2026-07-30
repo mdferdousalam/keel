@@ -269,6 +269,24 @@ enum Command {
         yes: bool,
     },
 
+    /// Register the browser bridge so a browser can launch it.
+    ///
+    /// Writes the native-messaging manifests that tell Chrome, Edge, Brave, Vivaldi, and
+    /// Firefox how to start `keel-native-host`, and which extensions may do so. Needs no vault
+    /// and no agent: it only writes files under your own configuration directories.
+    SetupBrowser {
+        /// The extension's ID, as the browser assigned it.
+        ///
+        /// Required for Chromium browsers, because an unpacked build gets a different ID on
+        /// every machine and the manifest names the extensions permitted to launch the bridge.
+        #[arg(long, value_name = "ID")]
+        extension_id: Option<String>,
+
+        /// Print what would be written without writing it.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Show or change vault settings.
     Settings {
         /// Permit AI agents to receive plaintext secrets. Each reveal still needs approval.
@@ -345,11 +363,40 @@ fn report(error: &ClientError) {
     }
 }
 
+/// The name a browser uses to refer to the bridge. Matches `HOST` in the extension worker.
+const NATIVE_HOST_NAME: &str = "dev.keel.native_host";
+
+/// Filename of the bridge binary, as installed next to `keel`.
+#[cfg(windows)]
+const HOST_BINARY: &str = "keel-native-host.exe";
+/// Filename of the bridge binary, as installed next to `keel`.
+#[cfg(not(windows))]
+const HOST_BINARY: &str = "keel-native-host";
+
+/// Extension ID used when the user does not supply one.
+///
+/// A placeholder until the extension is published, and `setup-browser` says so rather than
+/// letting a user wonder why nothing works. An unpacked build always needs `--extension-id`.
+const DEFAULT_EXTENSION_ID: &str = "keelvaultkeelvaultkeelvaultkeelva";
+
+/// Firefox add-on ID. Firefox matches on this rather than on a per-machine identifier.
+const FIREFOX_EXTENSION_ID: &str = "keel@keel.dev";
+
 fn run(cli: &Cli) -> Result<(), ClientError> {
     // Verification needs no vault and no agent: it checks bytes on disk. Connecting first
     // would mean a user cannot check a download without starting a daemon.
     if let Command::VerifyRelease { directory } = &cli.command {
         return verify_release(directory, cli.json);
+    }
+    // Registering the browser bridge writes files under the user's own configuration
+    // directories. It touches no vault, so it must not require one to exist — a user should be
+    // able to set the browser up before, or entirely without, creating a vault.
+    if let Command::SetupBrowser {
+        extension_id,
+        dry_run,
+    } = &cli.command
+    {
+        return setup_browser(extension_id.as_deref(), *dry_run, cli.json);
     }
 
     let mut client = Client::connect(ClientKind::Cli, CLIENT_ID)?;
@@ -424,6 +471,7 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             output,
             yes,
         } => export(&mut client, format, output.as_deref(), *yes, cli.json),
+        Command::SetupBrowser { .. } => unreachable!("handled before connecting"),
         Command::Settings { agent_reveal } => {
             settings(&mut client, agent_reveal.as_deref(), cli.json)
         }
@@ -777,6 +825,180 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), Client
         context: "flushing the export file",
         source: e,
     })
+}
+
+/// Register the browser bridge with every browser this machine appears to have.
+///
+/// A native-messaging manifest is a small JSON file in a browser-specific directory that
+/// names a program the browser may launch and the extensions permitted to launch it. Writing
+/// it is the whole of "installing" the bridge.
+///
+/// Two things about `allowed_origins`, because it is easy to over-trust:
+///
+/// It is what stops an *arbitrary* extension from launching the bridge, so it is worth
+/// getting right. It is **not** a security boundary against a program running as you — any
+/// such program can execute `keel-native-host` directly, or talk to the agent's socket
+/// itself. That is why the bridge decides nothing and the agent decides everything.
+///
+/// Firefox uses `allowed_extensions` with an add-on ID instead, so both shapes are written.
+fn setup_browser(extension_id: Option<&str>, dry_run: bool, json: bool) -> Result<(), ClientError> {
+    // The bridge lives next to this binary. Resolved to an absolute path because a browser
+    // launches it with an unpredictable working directory.
+    let host_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(HOST_BINARY)))
+        .ok_or_else(|| {
+            ClientError::Unexpected("could not work out where keel-native-host is".into())
+        })?;
+    if !host_path.exists() {
+        eprintln!(
+            "keel: {} is not next to this binary. The manifests below will point at it \
+             anyway, so re-run this once it is installed alongside `keel`.",
+            host_path.display()
+        );
+    }
+
+    let chromium_id = extension_id.unwrap_or(DEFAULT_EXTENSION_ID);
+    let chromium = serde_json::json!({
+        "name": NATIVE_HOST_NAME,
+        "description": "Keel browser bridge",
+        "path": host_path,
+        "type": "stdio",
+        "allowed_origins": [format!("chrome-extension://{chromium_id}/")],
+    });
+    let firefox = serde_json::json!({
+        "name": NATIVE_HOST_NAME,
+        "description": "Keel browser bridge",
+        "path": host_path,
+        "type": "stdio",
+        "allowed_extensions": [FIREFOX_EXTENSION_ID],
+    });
+
+    let mut written = Vec::new();
+    let mut skipped = Vec::new();
+    for (browser, dir, body) in native_host_targets(&chromium, &firefox) {
+        // Only browsers that are actually installed. Creating a Brave configuration
+        // directory on a machine without Brave would be litter.
+        let Some(parent) = dir.parent() else { continue };
+        if !parent.exists() {
+            skipped.push(browser.to_owned());
+            continue;
+        }
+        let path = dir.join(format!("{NATIVE_HOST_NAME}.json"));
+        if dry_run {
+            written.push((browser.to_owned(), path));
+            continue;
+        }
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("keel: could not create {}: {e}", dir.display());
+            continue;
+        }
+        let contents = serde_json::to_string_pretty(body).unwrap_or_default();
+        match std::fs::write(&path, contents) {
+            Ok(()) => written.push((browser.to_owned(), path)),
+            Err(e) => eprintln!("keel: could not write {}: {e}", path.display()),
+        }
+    }
+
+    if json {
+        print_json(&serde_json::json!({
+            "host": host_path,
+            "extension_id": chromium_id,
+            "dry_run": dry_run,
+            "written": written.iter().map(|(b, p)| serde_json::json!({"browser": b, "path": p})).collect::<Vec<_>>(),
+            "skipped": skipped,
+        }));
+        return Ok(());
+    }
+
+    if written.is_empty() {
+        println!("No supported browser configuration directories were found on this machine.");
+    } else {
+        println!(
+            "{} the browser bridge for:",
+            if dry_run {
+                "Would register"
+            } else {
+                "Registered"
+            }
+        );
+        for (browser, path) in &written {
+            println!("  {browser:<10} {}", path.display());
+        }
+    }
+    if !skipped.is_empty() {
+        println!("\nNot installed, so skipped: {}", skipped.join(", "));
+    }
+    if extension_id.is_none() {
+        println!(
+            "\nNo --extension-id was given, so the Chromium manifests name the published\n\
+             extension. If you loaded the extension unpacked, Chrome gave it a different ID:\n\
+             copy it from chrome://extensions and re-run\n\
+             \n  keel setup-browser --extension-id <ID>\n"
+        );
+    }
+    println!(
+        "This lets a browser start Keel's bridge. It does not grant access to your vault:\n\
+         the bridge holds no keys, and the agent decides every request."
+    );
+    Ok(())
+}
+
+/// Where each browser looks for native-messaging manifests, and what to write there.
+///
+/// Paths are the documented per-user locations. Only the user's own directories are touched;
+/// nothing here writes system-wide, which would need privileges Keel should never ask for.
+fn native_host_targets<'a>(
+    chromium: &'a serde_json::Value,
+    firefox: &'a serde_json::Value,
+) -> Vec<(&'static str, std::path::PathBuf, &'a serde_json::Value)> {
+    let home = match std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        Some(home) => home,
+        None => return Vec::new(),
+    };
+    let mut out: Vec<(&'static str, std::path::PathBuf, &serde_json::Value)> = Vec::new();
+
+    #[cfg(target_os = "macos")]
+    {
+        let support = home.join("Library/Application Support");
+        for (browser, base) in [
+            ("Chrome", support.join("Google/Chrome")),
+            ("Edge", support.join("Microsoft Edge")),
+            ("Brave", support.join("BraveSoftware/Brave-Browser")),
+            ("Chromium", support.join("Chromium")),
+            ("Vivaldi", support.join("Vivaldi")),
+        ] {
+            out.push((browser, base.join("NativeMessagingHosts"), chromium));
+        }
+        out.push((
+            "Firefox",
+            support.join("Mozilla/NativeMessagingHosts"),
+            firefox,
+        ));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"));
+        for (browser, base) in [
+            ("Chrome", config.join("google-chrome")),
+            ("Edge", config.join("microsoft-edge")),
+            ("Brave", config.join("BraveSoftware/Brave-Browser")),
+            ("Chromium", config.join("chromium")),
+            ("Vivaldi", config.join("vivaldi")),
+        ] {
+            out.push((browser, base.join("NativeMessagingHosts"), chromium));
+        }
+        out.push((
+            "Firefox",
+            home.join(".mozilla/native-messaging-hosts"),
+            firefox,
+        ));
+    }
+
+    out
 }
 
 /// Show or change settings.
