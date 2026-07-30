@@ -87,6 +87,13 @@ pub enum Error {
     /// This platform is not supported yet.
     #[error("{0}")]
     Unsupported(&'static str),
+
+    /// The caller asked for something the current state does not allow.
+    ///
+    /// Distinct from [`Self::Unexpected`], whose message blames a version mismatch. Reusing
+    /// that for a plain refusal tells the user to go looking for a bug that is not there.
+    #[error("{0}")]
+    Refused(String),
 }
 
 impl Error {
@@ -178,11 +185,29 @@ impl core::fmt::Debug for Client {
 impl Client {
     /// Connect to a running agent, starting one if necessary.
     pub fn connect(kind: ClientKind, client_id: &str) -> Result<Self> {
+        Self::connect_for_vault(kind, client_id, None)
+    }
+
+    /// Connect, naming the vault a freshly spawned agent should open.
+    ///
+    /// The path is passed as an argument to the agent rather than through the environment,
+    /// because mutating a process's environment to influence a child is both `unsafe` in this
+    /// edition and a side effect on everything else that reads it afterwards.
+    ///
+    /// It has no effect on an agent that is **already** running: that agent chose its vault
+    /// when it started. Callers who care must compare the vault path in a status response and
+    /// decide what to do about a mismatch, because the right answer depends on who else might
+    /// be using the running agent.
+    pub fn connect_for_vault(
+        kind: ClientKind,
+        client_id: &str,
+        vault: Option<&Path>,
+    ) -> Result<Self> {
         let path = socket_path();
         match Self::attach(&path, kind, client_id) {
             Ok(client) => Ok(client),
             Err(_) => {
-                spawn_agent()?;
+                spawn_agent(vault)?;
                 wait_for_socket(&path)?;
                 Self::attach(&path, kind, client_id)
             }
@@ -282,9 +307,15 @@ impl Client {
 }
 
 /// Start the agent as a detached background process.
-fn spawn_agent() -> Result<()> {
+fn spawn_agent(vault: Option<&Path>) -> Result<()> {
     let binary = agent_binary();
-    std::process::Command::new(&binary)
+    let mut command = std::process::Command::new(&binary);
+    if let Some(vault) = vault {
+        // `keel-agent` takes the vault path as its first argument, falling back to
+        // `KEEL_VAULT`. Passing it here leaves this process's environment untouched.
+        command.arg(vault);
+    }
+    command
         // Detach the standard streams: the agent outlives the command that started it, and
         // inheriting a terminal would make it die with that terminal.
         .stdin(std::process::Stdio::null())

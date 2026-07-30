@@ -13,7 +13,7 @@
 | 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects |
 | 5 — Browser extension | **Done, minus pairing** | `keel-native-host`, MV3 extension, `keel setup-browser`. Origin matching in the agent, with every look-alike case tested. SAS pairing and the Noise channel are not built. |
 | 6 — MCP server | **Done** | Both halves verified: the default cannot leak a password, and the opt-in works one request at a time |
-| 7 — Release pipeline | **Mostly done** | Signing keys not generated; packaging configs not written |
+| 7 — Release pipeline | **Mostly done** | Packaging templates written for Homebrew, Scoop, AUR, nfpm (deb/rpm), and a systemd user unit. Signing keys not generated — that is an offline ceremony whose whole value is never having been on a networked machine. |
 
 **Working:** the whole CLI (`init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
 `get`, `rotate`, `rm`, `generate`, `save`, `import`, `export`, `audit`, `log`, `settings`,
@@ -29,8 +29,13 @@
 - **Pairing between the extension and the agent.** SAS code plus a Noise channel, per §6.3.
   Its value is against a same-user process impersonating the browser, which is outside the
   threat model the rest of Keel is written against — recorded as a gap, not skipped quietly.
-- **Windows.** Needs the named-pipe transport with a current-user-only DACL.
-- **`--vault <path>`** from §11; the path comes from `KEEL_VAULT` or the agent's argv.
+- **Windows.** The agent refuses to start. The transport is now *specified* in
+  `docs/architecture.md` rather than implemented: it needs the Windows security APIs, the
+  load-bearing part is a token-SID comparison whose failure mode is to silently grant access,
+  and none of it can be compiled — let alone run — on the machine this was developed on.
+  Committing unverified `unsafe` security code behind a green build is worse than an honest
+  refusal, so the design is written down instead.
+
 - **The breach Bloom filter.** The strength estimator recognises structure and ~300 famous
   passwords and says so rather than implying corpus coverage.
 

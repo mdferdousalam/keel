@@ -63,6 +63,14 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Use this vault file instead of the default.
+    ///
+    /// The agent is what actually opens a vault, and one agent serves one vault, so this
+    /// refuses rather than switching if an agent is already running on a different file —
+    /// silently operating on the wrong vault is the worst outcome available here.
+    #[arg(long, global = true, value_name = "PATH")]
+    vault: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -399,7 +407,33 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
         return setup_browser(extension_id.as_deref(), *dry_run, cli.json);
     }
 
-    let mut client = Client::connect(ClientKind::Cli, CLIENT_ID)?;
+    // Passed to a freshly spawned agent as an argument, not through the environment.
+    let requested_vault = cli
+        .vault
+        .as_ref()
+        .map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone()));
+
+    let mut client =
+        Client::connect_for_vault(ClientKind::Cli, CLIENT_ID, requested_vault.as_deref())?;
+
+    if let Some(absolute) = &requested_vault {
+        if let Response::Status(info) = client.request(&Request::Status)? {
+            let running = std::path::Path::new(&info.vault_path);
+            // Compared after resolving both sides as far as possible. A mismatch is refused
+            // rather than resolved by restarting the agent: the running one may hold an
+            // unlocked vault, and killing it out from under whoever unlocked it — a desktop
+            // window, a browser session — is not this command's decision to make.
+            if running != absolute.as_path() {
+                return Err(ClientError::Refused(format!(
+                    "an agent is already running for {}, so --vault {} cannot be used.\n\
+                     Run `keel lock` and let that agent retire, or point KEEL_AGENT_SOCKET at \
+                     a separate socket to run a second one.",
+                    info.vault_path,
+                    absolute.display()
+                )));
+            }
+        }
+    }
     match &cli.command {
         Command::Init { tier } => init(&mut client, tier, cli.json),
         Command::Unlock { accept_rollback } => unlock(&mut client, *accept_rollback, cli.json),

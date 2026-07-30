@@ -1,0 +1,54 @@
+# Maintainer: Keel maintainers <security@keel.dev>
+#
+# Builds from the tagged source with the committed lockfile, so what a user runs is built from
+# exactly the dependency versions the release was tested against. `keel-bin` (a separate
+# PKGBUILD) uses the published artifact for people who would rather verify a signature than
+# compile.
+pkgname=keel
+pkgver=0.0.0.unreleased
+pkgrel=1
+pkgdesc="Local-first password manager with no server, no account, and no telemetry"
+arch=('x86_64' 'aarch64')
+url="https://github.com/keel-vault/keel"
+license=('GPL-3.0-or-later')
+# No runtime dependencies beyond libc. Keel links no HTTP or TLS stack, and
+# `cargo xtask check-network` fails the build if that changes.
+depends=('gcc-libs')
+makedepends=('cargo' 'git')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v${pkgver//.unreleased/-unreleased}.tar.gz")
+sha256sums=('REPLACE_WITH_THE_PUBLISHED_SHA256')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  # --locked, always. Resolving fresh at package time would build something other than what
+  # was tested, which is the whole thing a lockfile exists to prevent.
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  cargo test --frozen --workspace
+  # The architectural gates are part of the build's meaning, not an optional extra: they are
+  # what makes "no network in the vault" and "only the agent links the crypto core" true
+  # rather than aspirational.
+  cargo run --frozen -p xtask -- check
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release --workspace
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  for binary in keel keel-agent keel-mcp keel-native-host; do
+    install -Dm0755 "target/release/$binary" "$pkgdir/usr/bin/$binary"
+  done
+  install -Dm0644 packaging/keel-agent.service \
+    "$pkgdir/usr/lib/systemd/user/keel-agent.service"
+  install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm0644 docs/threat-model.md "$pkgdir/usr/share/doc/$pkgname/threat-model.md"
+}

@@ -1,0 +1,51 @@
+# nfpm builds .deb and .rpm from the same description.
+#
+#   nfpm package --packager deb --target dist/
+#   nfpm package --packager rpm --target dist/
+#
+# Version comes from the environment so the tag is the single source of truth; a version
+# hard-coded here would drift from the tag exactly once and be wrong in a shipped package.
+name: keel
+version: ${KEEL_VERSION}
+release: "1"
+section: utils
+priority: optional
+arch: ${KEEL_ARCH}
+maintainer: Keel maintainers <security@keel.dev>
+description: |
+  A local-first password manager.
+  Keel keeps your passwords in one encrypted file on this machine. There is no server, no
+  account, and no telemetry. The vault is encrypted with XChaCha20-Poly1305 under a key
+  derived by Argon2id, and only one process ever holds the keys.
+vendor: Keel
+homepage: https://github.com/keel-vault/keel
+license: GPL-3.0-or-later
+
+# Deliberately empty. Keel links no HTTP or TLS stack and needs no runtime libraries beyond
+# libc; `cargo xtask check-network` enforces the first half of that claim.
+depends: []
+
+contents:
+  - src: ./target/release/keel
+    dst: /usr/bin/keel
+  - src: ./target/release/keel-agent
+    dst: /usr/bin/keel-agent
+  - src: ./target/release/keel-mcp
+    dst: /usr/bin/keel-mcp
+  - src: ./target/release/keel-native-host
+    dst: /usr/bin/keel-native-host
+  - src: ./LICENSE
+    dst: /usr/share/doc/keel/LICENSE
+  - src: ./README.md
+    dst: /usr/share/doc/keel/README.md
+  - src: ./docs/threat-model.md
+    dst: /usr/share/doc/keel/threat-model.md
+
+  # A user unit, not a system one. The agent holds one user's keys and must never run as a
+  # shared service: a system-wide agent would put every user's vault in one process.
+  - src: ./packaging/keel-agent.service
+    dst: /usr/lib/systemd/user/keel-agent.service
+
+# No post-install script. Nothing here needs to run as root, create a user, or touch a
+# system-wide configuration file, and a package that asks for a root hook it does not need is
+# a package that gets audited less carefully than it should be.

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
+  "version": "0.0.0-unreleased",
+  "description": "Local-first password manager with no server, no account, and no telemetry",
+  "homepage": "https://github.com/keel-vault/keel",
+  "license": "GPL-3.0-or-later",
+  "notes": [
+    "Keel is distributed without a paid code-signing certificate. Installing through Scoop",
+    "avoids SmartScreen's browser-download reputation check, which is why this is the",
+    "recommended Windows channel.",
+    "",
+    "Create a vault with:  keel init",
+    "",
+    "NOTE: the agent does not yet run on Windows. The named-pipe transport is specified in",
+    "docs/architecture.md and not implemented, so `keel` will report that this platform is",
+    "unsupported. This manifest exists so the channel is ready when it is."
+  ],
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/keel-vault/keel/releases/download/v0.0.0-unreleased/keel-0.0.0-unreleased-x86_64-pc-windows-msvc.zip",
+      "hash": "REPLACE_WITH_THE_PUBLISHED_SHA256"
+    },
+    "arm64": {
+      "url": "https://github.com/keel-vault/keel/releases/download/v0.0.0-unreleased/keel-0.0.0-unreleased-aarch64-pc-windows-msvc.zip",
+      "hash": "REPLACE_WITH_THE_PUBLISHED_SHA256"
+    }
+  },
+  "bin": [
+    "keel.exe",
+    "keel-agent.exe",
+    "keel-mcp.exe",
+    "keel-native-host.exe"
+  ],
+  "checkver": {
+    "github": "https://github.com/keel-vault/keel"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/keel-vault/keel/releases/download/v$version/keel-$version-x86_64-pc-windows-msvc.zip"
+      },
+      "arm64": {
+        "url": "https://github.com/keel-vault/keel/releases/download/v$version/keel-$version-aarch64-pc-windows-msvc.zip"
+      }
+    },
+    "hash": {
+      "url": "$baseurl/SHA256SUMS"
+    }
+  }
+}

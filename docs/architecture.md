@@ -177,3 +177,53 @@ that shape everything else:
    by the CLI, the extension, and the MCP server.
 5. `crates/keel-agent/src/` — session handling and the trust boundary.
 6. `xtask/src/rules.rs` — the architectural rules, as CI sees them.
+
+## The Windows transport, specified but not written
+
+Windows is the one platform where `keel-agent` refuses to start. The error says so, and this
+section says what has to be built, because a specification is more useful than a plausible
+implementation nobody has run.
+
+**Why it is not written.** The transport needs the Windows security APIs, which means `unsafe`
+in `keel-hardening`, and the security-relevant part is a token-SID comparison — code where a
+mistake silently *grants* access rather than failing visibly. It cannot be compiled, let alone
+tested, on the machine Keel is currently developed on. Writing it blind and committing it as
+done would put an unverified security control in the tree behind a green build, which is worse
+than an honest refusal.
+
+**The design.** It mirrors the Unix side, where the file mode is a courtesy and
+`SO_PEERCRED` is the control.
+
+* **Name.** `\\.\pipe\dev.keel.agent-<hash of the user SID>`, so two users on one machine
+  cannot collide and neither can guess the other's name from their own.
+* **Creation.** `CreateNamedPipeW` with `PIPE_ACCESS_DUPLEX`, `PIPE_TYPE_BYTE`,
+  `PIPE_READMODE_BYTE`, `PIPE_WAIT`, and — importantly —
+  **`PIPE_REJECT_REMOTE_CLIENTS`**. Named pipes are reachable over SMB by default, and
+  omitting that flag turns a local-only design into a network service.
+* **First instance.** `FILE_FLAG_FIRST_PIPE_INSTANCE` on the instance created at startup, so
+  creation fails if the name is already claimed. Without it a second process can create
+  another instance of the same pipe and receive some of the connections meant for the first —
+  the Windows form of the socket-hijacking bug the Unix side had and now refuses.
+* **Security descriptor: null.** That gives the pipe the creating token's default DACL, in
+  practice the creating user and `SYSTEM`. This is the analogue of `0600` on the socket:
+  worth having, and not what the design relies on. Hand-building a DACL adds a second thing
+  to get wrong without removing the need for the next item.
+* **The actual control: verify the client's user.** After `ConnectNamedPipe`, call
+  `ImpersonateNamedPipeClient`, `OpenThreadToken`, and `GetTokenInformation(TokenUser)`, and
+  compare the client's SID against the agent's own with `EqualSid`. **Fail closed**: if
+  impersonation fails or either SID cannot be read, refuse the connection. Assuming a peer is
+  the same user because the check was unavailable is the mistake that makes the check
+  pointless. `RevertToSelf` on every path — a thread left impersonating a client would make
+  the agent's subsequent file access run as somebody else.
+* **Attribution only:** `GetNamedPipeClientProcessId` for the audit log and approval dialogs.
+  A pid is a hint, not a capability — pids are reused, so nothing may be authorised on one.
+* **Client side.** `keel-client` opens the pipe with `CreateFileW` and needs
+  `wait_for_socket`'s equivalent: wait until the pipe can actually be opened, not until a name
+  exists. The Unix version originally waited for a path to exist and stranded users after a
+  crash; the Windows version should not repeat it.
+
+**Also outstanding on Windows**, and separate from the transport: `SetProcessMitigationPolicy`
+for dynamic-code and extension-point policies, `WerRegisterExcludedMemoryBlock` to keep key
+pages out of crash dumps, `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` for the reveal
+overlay, and the clipboard exclusions — which `arboard` already applies, and which are the one
+piece of Windows-specific behaviour in the tree that is written.
