@@ -272,6 +272,14 @@ impl Session {
             }
             Request::Save => self.handle_save(&client),
             Request::AuditTail { limit } => self.handle_audit_tail(&client, limit),
+            Request::GrantAccess {
+                client_id,
+                scopes,
+                ttl_secs,
+                tag_filter,
+            } => self.handle_grant(&client, &client_id, &scopes, ttl_secs, tag_filter),
+            Request::ListGrants => self.handle_list_grants(&client),
+            Request::RevokeAccess { client_id } => self.handle_revoke(&client, &client_id),
             Request::ResolveApproval {
                 approval_id,
                 approved,
@@ -712,6 +720,119 @@ impl Session {
         })
     }
 
+    /// Issue a grant to another client.
+    ///
+    /// Restricted to human-driven clients. An agent that could grant itself scopes would make
+    /// the entire scope system decorative, so this is the one place where the *requesting*
+    /// client's type is an authorization decision rather than merely a default.
+    fn handle_grant(
+        &mut self,
+        client: &Client,
+        target: &str,
+        scopes: &[String],
+        ttl_secs: Option<u64>,
+        tag_filter: Option<String>,
+    ) -> Result<Response> {
+        if !client.client_type.can_prompt_user() {
+            return Err(Failure::new(
+                ErrorCode::Denied,
+                "only the desktop app or the command line may grant access to another client",
+            ));
+        }
+        if target.is_empty() || target.len() > 128 {
+            return Err(Failure::new(
+                ErrorCode::BadRequest,
+                "a client identifier between 1 and 128 characters is required",
+            ));
+        }
+        if scopes.is_empty() {
+            return Err(Failure::new(
+                ErrorCode::BadRequest,
+                "at least one capability is required",
+            ));
+        }
+
+        let mut parsed = std::collections::BTreeSet::new();
+        for name in scopes {
+            parsed.insert(parse_scope(name)?);
+        }
+
+        let filter = match &tag_filter {
+            Some(pattern) => keel_core::policy::EntryFilter::TagGlob(pattern.clone()),
+            None => keel_core::policy::EntryFilter::All,
+        };
+
+        let mut grant_id = [0u8; 16];
+        keel_crypto::fill_random(&mut grant_id).map_err(|_| {
+            Failure::new(
+                ErrorCode::Internal,
+                "the operating system random number generator failed",
+            )
+        })?;
+
+        let ttl = ttl_secs.unwrap_or(keel_core::policy::DEFAULT_GRANT_TTL);
+        let now = crate::state::now();
+        let grant = keel_core::policy::Grant::new(grant_id, target, parsed, filter, now, ttl);
+        let expires_at = grant.expires_at;
+
+        let mut state = self.lock_state()?;
+        state.policy().add_grant(grant);
+        // A fresh grant from a human also clears a tripped breaker for that client: the user has
+        // just deliberately re-authorised it.
+        state.policy().reset_breaker(target);
+        state.audit(client, "grant_access", None, Outcome::Allowed, Some(target));
+        state.flush_audit();
+
+        Ok(Response::Grants {
+            grants: vec![keel_proto::GrantSummary {
+                client_id: target.to_owned(),
+                scopes: scopes.to_vec(),
+                tag_filter,
+                expires_at,
+                uses_remaining: keel_core::policy::DEFAULT_MAX_USES,
+            }],
+        })
+    }
+
+    /// List grants in force.
+    fn handle_list_grants(&mut self, client: &Client) -> Result<Response> {
+        let now = crate::state::now();
+        let mut state = self.lock_state()?;
+        let grants = state
+            .policy()
+            .persistable(now)
+            .into_iter()
+            .map(|g| keel_proto::GrantSummary {
+                client_id: g.client_id,
+                scopes: g.scopes.iter().map(|s| scope_name(*s).to_owned()).collect(),
+                tag_filter: g.tag_filter,
+                expires_at: g.expires_at,
+                uses_remaining: 0,
+            })
+            .collect();
+        let _ = client;
+        Ok(Response::Grants { grants })
+    }
+
+    /// Revoke every grant held by a client.
+    ///
+    /// Deliberately available to any client, including the one losing access: nobody should
+    /// have to ask permission to give up permission.
+    fn handle_revoke(&mut self, client: &Client, target: &str) -> Result<Response> {
+        let mut state = self.lock_state()?;
+        let removed = state.policy().revoke_client(target);
+        state.audit(
+            client,
+            "revoke_access",
+            None,
+            Outcome::Allowed,
+            Some(target),
+        );
+        state.flush_audit();
+        let _ = removed;
+        Ok(Response::Ok)
+    }
+
     fn handle_resolve_approval(
         &mut self,
         client: &Client,
@@ -786,6 +907,39 @@ impl Session {
                 "browser fill requires the Keel browser extension, which is not connected",
             )),
         }
+    }
+}
+
+/// Parse a capability name from the wire.
+fn parse_scope(name: &str) -> Result<keel_core::policy::Scope> {
+    use keel_core::policy::Scope;
+    match name.to_ascii_lowercase().replace('-', "_").as_str() {
+        "metadata_read" | "metadata" => Ok(Scope::MetadataRead),
+        "secret_use" | "use" => Ok(Scope::SecretUse),
+        "secret_reveal" | "reveal" => Ok(Scope::SecretReveal),
+        "entry_write" | "write" => Ok(Scope::EntryWrite),
+        "totp_read" | "totp" => Ok(Scope::TotpRead),
+        "audit_read" | "audit" => Ok(Scope::AuditRead),
+        other => Err(Failure::new(
+            ErrorCode::BadRequest,
+            format!(
+                "unknown capability {other:?}; expected metadata_read, secret_use, \
+                 secret_reveal, entry_write, totp_read, or audit_read"
+            ),
+        )),
+    }
+}
+
+/// Wire name for a capability.
+const fn scope_name(scope: keel_core::policy::Scope) -> &'static str {
+    use keel_core::policy::Scope;
+    match scope {
+        Scope::MetadataRead => "metadata_read",
+        Scope::SecretUse => "secret_use",
+        Scope::SecretReveal => "secret_reveal",
+        Scope::EntryWrite => "entry_write",
+        Scope::TotpRead => "totp_read",
+        Scope::AuditRead => "audit_read",
     }
 }
 

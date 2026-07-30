@@ -182,6 +182,44 @@ enum Command {
     /// Save pending changes to disk.
     Save,
 
+    /// Grant an AI agent or browser extension access to the vault.
+    ///
+    /// Agents start with no access at all. This is how a human authorises one, and it is
+    /// deliberately a separate, explicit act.
+    Grant {
+        /// Client identifier, as the agent reports it. For the MCP server this is
+        /// KEEL_MCP_CLIENT_ID, defaulting to "keel-mcp".
+        client_id: String,
+        /// Capability to grant, repeatable: metadata, use, reveal, write, totp, audit.
+        ///
+        /// `use` lets the agent apply a password without seeing it, and is what you want for
+        /// "log me in". `reveal` hands over plaintext and still requires you to approve every
+        /// request.
+        #[arg(long = "scope", short = 's', required = true)]
+        scopes: Vec<String>,
+        /// Lifetime in minutes. Defaults to 15.
+        #[arg(long, default_value_t = 15)]
+        minutes: u64,
+        /// Restrict to entries carrying a tag matching this pattern, for example "work/*".
+        #[arg(long)]
+        tag: Option<String>,
+        /// Grant access to every entry.
+        ///
+        /// Required explicitly when no --tag is given: "all my passwords" should not be a
+        /// default.
+        #[arg(long)]
+        all_entries: bool,
+    },
+
+    /// List the access grants currently in force.
+    Grants,
+
+    /// Revoke every grant held by a client.
+    Revoke {
+        /// Client identifier.
+        client_id: String,
+    },
+
     /// Verify the signatures and checksums of a downloaded release.
     ///
     /// Requires both the Ed25519 and the ML-DSA signature to pass. Needs no vault and no
@@ -279,8 +317,121 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             emit(cli.json, "Saved.", &serde_json::json!({"saved": true}));
             Ok(())
         }
+        Command::Grant {
+            client_id,
+            scopes,
+            minutes,
+            tag,
+            all_entries,
+        } => grant(
+            &mut client,
+            client_id,
+            scopes,
+            *minutes,
+            tag.as_deref(),
+            *all_entries,
+            cli.json,
+        ),
+        Command::Grants => grants(&mut client, cli.json),
+        Command::Revoke { client_id } => {
+            client.request(&Request::RevokeAccess {
+                client_id: client_id.clone(),
+            })?;
+            emit(
+                cli.json,
+                &format!("Revoked all access for {client_id}."),
+                &serde_json::json!({"revoked": client_id}),
+            );
+            Ok(())
+        }
         Command::VerifyRelease { .. } => unreachable!("handled before connecting"),
     }
+}
+
+/// Grant a client access.
+#[allow(clippy::too_many_arguments)]
+fn grant(
+    client: &mut Client,
+    client_id: &str,
+    scopes: &[String],
+    minutes: u64,
+    tag: Option<&str>,
+    all_entries: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    // Requiring --all-entries when no tag is given makes "every password I own" a deliberate
+    // choice rather than what happens when a flag is forgotten.
+    if tag.is_none() && !all_entries {
+        return Err(ClientError::Agent {
+            code: ErrorCode::BadRequest,
+            message: "specify --tag to limit the grant, or --all-entries to cover every entry"
+                .to_owned(),
+        });
+    }
+
+    let reveal_requested = scopes
+        .iter()
+        .any(|s| matches!(s.to_ascii_lowercase().as_str(), "reveal" | "secret_reveal"));
+
+    let response = client.request(&Request::GrantAccess {
+        client_id: client_id.to_owned(),
+        scopes: scopes.to_vec(),
+        ttl_secs: Some(minutes.saturating_mul(60)),
+        tag_filter: tag.map(str::to_owned),
+    })?;
+
+    let Response::Grants { grants } = response else {
+        return Err(ClientError::Unexpected("expected a grants response".into()));
+    };
+
+    if json {
+        print_json(&serde_json::json!({"granted": grants}));
+        return Ok(());
+    }
+
+    println!(
+        "Granted {client_id}: {} for {minutes} minutes{}.",
+        scopes.join(", "),
+        tag.map_or_else(String::new, |t| format!(" (entries tagged {t})"))
+    );
+    if reveal_requested {
+        // Say what "reveal" actually means, at the moment the user is choosing it, rather than
+        // leaving them to find out later.
+        println!(
+            "\nNote: `reveal` lets the agent ask for plaintext passwords. Each request still \
+             needs your approval in the Keel window, and reveal is disabled for AI agents \
+             unless you have turned it on in settings. For logging in, `use` is safer and \
+             sufficient."
+        );
+    }
+    Ok(())
+}
+
+/// List grants.
+fn grants(client: &mut Client, json: bool) -> Result<(), ClientError> {
+    let Response::Grants { grants } = client.request(&Request::ListGrants)? else {
+        return Err(ClientError::Unexpected("expected a grants response".into()));
+    };
+    if json {
+        print_json(&serde_json::json!({"grants": grants}));
+        return Ok(());
+    }
+    if grants.is_empty() {
+        println!("No access has been granted to any client.");
+        return Ok(());
+    }
+    for grant in &grants {
+        println!(
+            "{}  {}{}",
+            grant.client_id,
+            grant.scopes.join(", "),
+            grant
+                .tag_filter
+                .as_ref()
+                .map_or_else(String::new, |t| format!("  (tagged {t})"))
+        );
+    }
+    Ok(())
 }
 
 /// Check a downloaded release.

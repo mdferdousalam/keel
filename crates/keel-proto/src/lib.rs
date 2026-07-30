@@ -352,6 +352,39 @@ pub enum Request {
         limit: Option<u32>,
     },
 
+    /// Grant an automated client a set of capabilities.
+    ///
+    /// Only a human-driven client (the GUI or the CLI) may send this: an agent granting itself
+    /// permissions would make the whole scope system decorative. The agent enforces that.
+    GrantAccess {
+        /// Which client the grant applies to.
+        client_id: String,
+        /// Capability names: `metadata_read`, `secret_use`, `secret_reveal`, `entry_write`,
+        /// `totp_read`, `audit_read`.
+        scopes: Vec<String>,
+        /// Lifetime in seconds. Capped by the agent.
+        #[serde(default)]
+        ttl_secs: Option<u64>,
+        /// Restrict the grant to entries carrying a tag matching this pattern.
+        ///
+        /// `None` means every entry, which the CLI requires an explicit flag for: "all my
+        /// passwords" deserves more than a default.
+        #[serde(default)]
+        tag_filter: Option<String>,
+    },
+
+    /// List the grants currently in force.
+    ListGrants,
+
+    /// Revoke every grant held by a client.
+    ///
+    /// Always permitted, from any client. Making revocation require permission would be an
+    /// obvious mistake.
+    RevokeAccess {
+        /// Which client.
+        client_id: String,
+    },
+
     /// Resolve an outstanding approval request.
     ResolveApproval {
         /// Which request.
@@ -515,6 +548,12 @@ pub enum Response {
         entropy_bits: f64,
     },
 
+    /// Grants currently in force.
+    Grants {
+        /// The grants.
+        grants: Vec<GrantSummary>,
+    },
+
     /// Audit records.
     Audit {
         /// Records, oldest first.
@@ -540,6 +579,21 @@ pub enum Response {
         /// Human-readable explanation.
         message: String,
     },
+}
+
+/// A grant, rendered for display.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrantSummary {
+    /// Which client holds it.
+    pub client_id: String,
+    /// Capability names.
+    pub scopes: Vec<String>,
+    /// Tag pattern restricting which entries are covered, if any.
+    pub tag_filter: Option<String>,
+    /// Absolute expiry, Unix seconds.
+    pub expires_at: u64,
+    /// Remaining operations before the grant is spent.
+    pub uses_remaining: u32,
 }
 
 /// One audit record, rendered for display.

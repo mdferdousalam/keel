@@ -638,6 +638,12 @@ version = "0.1.0"
 [[package]]
 name = "keel-mcp"
 version = "0.1.0"
+dependencies = [
+ "keel-client",
+ "keel-proto",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "keel-native-host"
