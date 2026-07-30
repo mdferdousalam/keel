@@ -12,7 +12,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-keel-crypto = { path = "../keel-crypto" }
+keel-crypto = { workspace = true }
 blake3 = { workspace = true }
 postcard = { workspace = true }
 serde = { workspace = true }

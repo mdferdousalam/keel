@@ -23,8 +23,8 @@ path = "src/lib.rs"
 # launched by the browser and is the component closest to hostile input, so it is the one
 # that knows the least. `cargo xtask check-layering` fails the build if that changes.
 [dependencies]
-keel-client = { path = "../keel-client" }
-keel-proto = { path = "../keel-proto" }
+keel-client = { workspace = true }
+keel-proto = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -40,6 +40,24 @@ authors = ["Keel contributors"]
 # generation is worth more than the newest version numbers.
 # ---------------------------------------------------------------------------
 [workspace.dependencies]
+# --- internal crates ---
+# Declared here with both a path and a version so each member can say
+# `keel-crypto = { workspace = true }` and the versions stay in one place.
+#
+# The version is not decoration. A path dependency without one cannot be published, and
+# `cargo install keel-cli` is a stated distribution channel — cargo-deny catches this as a
+# wildcard dependency, which is what it is: a build that resolves to whatever is there.
+keel-crypto = { path = "crates/keel-crypto", version = "0.1.0" }
+keel-format = { path = "crates/keel-format", version = "0.1.0" }
+keel-hardening = { path = "crates/keel-hardening", version = "0.1.0" }
+keel-store = { path = "crates/keel-store", version = "0.1.0" }
+keel-core = { path = "crates/keel-core", version = "0.1.0" }
+keel-proto = { path = "crates/keel-proto", version = "0.1.0" }
+keel-agent = { path = "crates/keel-agent", version = "0.1.0" }
+keel-client = { path = "crates/keel-client", version = "0.1.0" }
+keel-import = { path = "crates/keel-import", version = "0.1.0" }
+keel-breach = { path = "crates/keel-breach", version = "0.1.0" }
+
 # --- crypto primitives ---
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
 # XChaCha20Poly1305 is unconditional in 0.10; nonces come from `getrandom`

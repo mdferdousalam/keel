@@ -16,9 +16,9 @@ name = "keel"
 path = "src/main.rs"
 
 [dependencies]
-keel-client = { path = "../keel-client" }
-keel-import = { path = "../keel-import" }
-keel-proto = { path = "../keel-proto" }
+keel-client = { workspace = true }
+keel-import = { workspace = true }
+keel-proto = { workspace = true }
 clap = { version = "4", features = ["derive", "wrap_help"] }
 rpassword = "7"
 serde_json = { workspace = true }

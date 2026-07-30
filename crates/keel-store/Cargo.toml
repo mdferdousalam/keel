@@ -12,8 +12,8 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-keel-crypto = { path = "../keel-crypto" }
-keel-format = { path = "../keel-format" }
+keel-crypto = { workspace = true }
+keel-format = { workspace = true }
 blake3 = { workspace = true }
 directories = { workspace = true }
 tempfile = { workspace = true }

@@ -24,7 +24,7 @@ todo = "warn"
 # function be safe: the borrow proves the window is alive, so no precondition is left for a
 # caller to get wrong.
 raw-window-handle = "0.6"
-keel-crypto = { path = "../keel-crypto" }
+keel-crypto = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

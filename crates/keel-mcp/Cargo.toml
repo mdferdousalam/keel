@@ -31,8 +31,8 @@ path = "src/lib.rs"
 # where the SDK would track it for us. The protocol surface used (initialize, tools/list,
 # tools/call) is small and stable, and `protocol.rs` documents the revision it targets.
 [dependencies]
-keel-client = { path = "../keel-client" }
-keel-proto = { path = "../keel-proto" }
+keel-client = { workspace = true }
+keel-proto = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

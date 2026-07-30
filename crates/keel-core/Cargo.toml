@@ -12,10 +12,10 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-keel-crypto = { path = "../keel-crypto" }
-keel-format = { path = "../keel-format" }
-keel-hardening = { path = "../keel-hardening" }
-keel-store = { path = "../keel-store" }
+keel-crypto = { workspace = true }
+keel-format = { workspace = true }
+keel-hardening = { workspace = true }
+keel-store = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }

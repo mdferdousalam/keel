@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+# Shipped as an application bundle by tauri, never as a crate.
+publish = false
+
 [lints]
 workspace = true
 
@@ -24,8 +27,8 @@ path = "src/lib.rs"
 # changes. It cannot decrypt anything, and the webview it hosts is further from the keys
 # than the shell is.
 [dependencies]
-keel-client = { path = "../../../crates/keel-client" }
-keel-proto = { path = "../../../crates/keel-proto" }
+keel-client = { workspace = true }
+keel-proto = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { workspace = true }
@@ -35,5 +38,5 @@ tauri-build = { workspace = true }
 
 [dev-dependencies]
 # The GUI-invariant test drives a real agent, so it needs a real client and a temp dir.
-keel-client = { path = "../../../crates/keel-client" }
+keel-client = { workspace = true }
 tempfile = { workspace = true }

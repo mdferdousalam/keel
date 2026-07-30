@@ -10,13 +10,63 @@
 
 [graph]
 all-features = true
+# Restricted to the platforms Keel actually ships. Without this, cargo-deny resolves the
+# union of every target's dependencies and reports `reqwest` and `hyper` as banned — both
+# of which `tauri` pulls in only for Android and non-macOS Apple targets, neither of which
+# Keel builds for. `cargo xtask check-network` had exactly the same false positive and was
+# fixed the same way; the two lists are deliberately identical, and xtask/src/rules.rs is
+# the other copy.
+targets = [
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+]
 
 [advisories]
 version = 2
 yanked = "deny"
 ignore = [
-    # Add entries only with a written justification and an owner, e.g.:
-    # { id = "RUSTSEC-0000-0000", reason = "...", expires = "2026-12-31" }
+    # Add entries only with a written justification and an expiry.
+    #
+    # Everything below is an `unmaintained` notice. **None of them is a vulnerability** — that
+    # distinction is the whole basis for ignoring them, and an entry here for an actual
+    # advisory would need a different argument entirely.
+    #
+    # All of them arrive through the Tauri desktop app, and none is reachable from the agent,
+    # the vault core, the CLI, the MCP server, or the browser bridge. That was verified with
+    # `cargo tree -e normal -p <crate>` rather than assumed, and it is the property
+    # `cargo xtask check-layering` exists to keep true: unmaintained code in the GUI shell
+    # cannot touch key material, because the GUI shell cannot.
+    #
+    # cargo-deny accepts only `id` and `reason` here, so there is no machine-checked expiry.
+    # These are not meant to be permanent: nine of the fourteen disappear the day Tauri moves
+    # off GTK3, and the right time to re-check is whenever the Tauri version is bumped.
+
+    # Tauri's Linux backend is built on the gtk-rs GTK3 bindings, which upstream has stopped
+    # maintaining in favour of GTK4. Tauri has not migrated, so there is nothing to upgrade
+    # to — the alternative is not shipping a Linux GUI.
+    { id = "RUSTSEC-2024-0411", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0412", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0413", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0415", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0416", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0418", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0419", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+    { id = "RUSTSEC-2024-0420", reason = "gtk-rs GTK3: Tauri's Linux backend; GUI-only, no vault access" },
+
+    # Reached through gtk3-macros, so it goes when GTK3 goes. A proc macro runs at build time
+    # only and is not in any shipped binary.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error via gtk3-macros; build-time only, GUI-only" },
+
+    # Tauri's own tooling uses the unic crates for identifier validation. Build-time, GUI-only.
+    { id = "RUSTSEC-2025-0075", reason = "unic-char-range via Tauri tooling; GUI-only, no vault access" },
+    { id = "RUSTSEC-2025-0080", reason = "unic-common via Tauri tooling; GUI-only, no vault access" },
+    { id = "RUSTSEC-2025-0081", reason = "unic-char-property via Tauri tooling; GUI-only, no vault access" },
+    { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version via Tauri tooling; GUI-only, no vault access" },
+    { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident via Tauri tooling; GUI-only, no vault access" },
 ]
 
 [licenses]
@@ -36,6 +86,9 @@ allow = [
     "MPL-2.0",
     "CC0-1.0",
     "GPL-3.0",
+    # Keel's own crates. Omitting this rejected every workspace member — the check had never
+    # actually run, so the gap was invisible.
+    "GPL-3.0-or-later",
     "Unlicense",
     "BSL-1.0",
 ]
@@ -44,7 +97,12 @@ private = { ignore = true }
 
 [bans]
 multiple-versions = "warn"
+# Wildcards stay denied for *registry* dependencies: `foo = "*"` means a build can silently
+# pick up anything. Path dependencies within this workspace are a different thing — they have
+# no version to pin because they are the same source tree — and without this every internal
+# crate reference was reported as a violation.
 wildcards = "deny"
+allow-wildcard-paths = true
 # A build script that can reach the network can do anything at build time.
 # There is no allowlist here on purpose: if a dependency needs one, that is a
 # conversation, not a config change.

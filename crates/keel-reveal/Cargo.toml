@@ -23,7 +23,7 @@ path = "src/lib.rs"
 # this process holds a plaintext password, so a parser for a complex binary format is exactly
 # what it should not contain. The font is a hand-built bitmap in `font.rs`.
 [dependencies]
-keel-hardening = { path = "../keel-hardening" }
+keel-hardening = { workspace = true }
 softbuffer = "0.4"
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland"] }
 zeroize = { workspace = true }
