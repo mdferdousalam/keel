@@ -356,6 +356,27 @@ pub enum Request {
         limit: Option<u32>,
     },
 
+    /// Read the vault's settings.
+    ReadSettings,
+
+    /// Change whether AI agents may ever receive plaintext secrets.
+    ///
+    /// Human-driven clients only, and deliberately its own request rather than part of a
+    /// general settings write: this is the single switch behind the claim that an agent
+    /// cannot exfiltrate a password, so it should be visible in the protocol, in the audit
+    /// log, and in review — not one boolean inside a bag of preferences.
+    SetMcpRevealEnabled {
+        /// Whether to permit reveals to AI agents at all. Approval is still per request.
+        enabled: bool,
+    },
+
+    /// List escalations waiting for the user to answer.
+    ///
+    /// Human-driven clients only. Letting an automated client enumerate pending prompts
+    /// would tell it exactly what the user is being shown — the first thing an attacker
+    /// would want in order to slip a second request under the same dialog.
+    PendingApprovals,
+
     /// Assess the health of every stored password.
     ///
     /// Only a human-driven client may send this. Producing the report decrypts every
@@ -586,6 +607,15 @@ pub enum Response {
         total: u64,
     },
 
+    /// The vault's settings.
+    Settings(Box<SettingsView>),
+
+    /// Escalations waiting for the user.
+    PendingApprovals {
+        /// Oldest first.
+        approvals: Vec<PendingApprovalView>,
+    },
+
     /// A vault health report.
     ///
     /// Carries counts, entry titles, and entropy estimates. It carries **no password
@@ -727,6 +757,62 @@ pub struct ExportedEntry {
     pub created_at: u64,
     /// When the password last changed, Unix seconds.
     pub password_changed_at: u64,
+}
+
+/// The vault's settings, as the UI should present them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingsView {
+    /// Seconds of inactivity before the vault locks.
+    pub autolock_secs: u32,
+    /// Seconds before a copied secret is cleared from the clipboard.
+    pub clipboard_clear_secs: u32,
+    /// Hard cap on an unlocked session, regardless of activity.
+    pub max_session_secs: u32,
+    /// Old passwords kept per entry.
+    pub password_history_keep: u32,
+    /// Whether any network access is permitted at all.
+    pub allow_network: bool,
+    /// Whether AI agents may ever receive plaintext. Off in the shipped configuration.
+    pub mcp_reveal_enabled: bool,
+}
+
+/// An escalation as the approval dialog should present it.
+///
+/// Every field here is **ground truth from the agent**, not a claim by the requesting
+/// client — the entry title comes from the vault, the client kind and executable from the
+/// verified peer. The single exception is [`agent_text`](Self::agent_text), which is
+/// attacker-controlled by construction and must be rendered as inert text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingApprovalView {
+    /// Identifier to pass back when answering.
+    pub approval_id: String,
+    /// Which client is asking.
+    pub client_id: String,
+    /// Client category, as a display string.
+    pub client_kind: String,
+    /// Verified executable path, if known. Shown so a client masquerading under a
+    /// registered name is visible by its mismatched path.
+    pub executable: Option<String>,
+    /// Operation name.
+    pub operation: String,
+    /// Entry title, read from the vault.
+    pub entry_title: Option<String>,
+    /// Concrete destination, for actions that send a secret somewhere.
+    pub destination: Option<String>,
+    /// The requesting client's own justification.
+    ///
+    /// **Untrusted.** It may be repeating instructions from a web page or a file the agent
+    /// read. Already sanitised of control characters, ANSI sequences, bidi overrides, and
+    /// zero-width characters by the policy engine, and must still be rendered as plain
+    /// text — never as markup, never as a button label, never as app chrome.
+    pub agent_text: Option<String>,
+    /// How long the Allow control stays disabled, in milliseconds.
+    ///
+    /// Defeats approval-fatigue click-through and synthetic-click races. A dialog that can
+    /// be dismissed the instant it appears is one that gets dismissed without being read.
+    pub arm_delay_ms: u64,
+    /// Seconds until this escalation times out.
+    pub expires_in_secs: u64,
 }
 
 /// One entry in a health report.

@@ -269,6 +269,30 @@ enum Command {
         yes: bool,
     },
 
+    /// Show or change vault settings.
+    Settings {
+        /// Permit AI agents to receive plaintext secrets. Each reveal still needs approval.
+        ///
+        /// Off in the shipped configuration, and that default is the basis of the claim that
+        /// an agent cannot exfiltrate a password. Turning it on does not make reveals
+        /// automatic; it makes them possible.
+        #[arg(long, value_name = "on|off")]
+        agent_reveal: Option<String>,
+    },
+
+    /// Answer a request that is waiting for you.
+    ///
+    /// The desktop app shows these as dialogs. At the command line they are listed and
+    /// answered by identifier, so a headless machine is not stuck.
+    Approvals {
+        /// Allow the request with this identifier.
+        #[arg(long, value_name = "ID")]
+        allow: Option<String>,
+        /// Refuse the request with this identifier.
+        #[arg(long, value_name = "ID")]
+        refuse: Option<String>,
+    },
+
     /// Revoke every grant held by a client.
     Revoke {
         /// Client identifier.
@@ -400,6 +424,12 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             output,
             yes,
         } => export(&mut client, format, output.as_deref(), *yes, cli.json),
+        Command::Settings { agent_reveal } => {
+            settings(&mut client, agent_reveal.as_deref(), cli.json)
+        }
+        Command::Approvals { allow, refuse } => {
+            approvals(&mut client, allow.as_deref(), refuse.as_deref(), cli.json)
+        }
         Command::Revoke { client_id } => {
             client.request(&Request::RevokeAccess {
                 client_id: client_id.clone(),
@@ -747,6 +777,159 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), Client
         context: "flushing the export file",
         source: e,
     })
+}
+
+/// Show or change settings.
+fn settings(
+    client: &mut Client,
+    agent_reveal: Option<&str>,
+    json: bool,
+) -> Result<(), ClientError> {
+    if let Some(value) = agent_reveal {
+        let enabled = match value.to_ascii_lowercase().as_str() {
+            "on" | "true" | "yes" | "enable" | "enabled" => true,
+            "off" | "false" | "no" | "disable" | "disabled" => false,
+            other => {
+                return Err(ClientError::Unexpected(format!(
+                    "expected on or off, got {other:?}"
+                )))
+            }
+        };
+        client.request(&Request::SetMcpRevealEnabled { enabled })?;
+        if enabled {
+            // Said plainly, because this is the one setting that weakens the property the
+            // whole product is built around.
+            eprintln!(
+                "AI agents may now be shown plaintext secrets.\n\
+                 \n\
+                 Each reveal still needs your approval, one request at a time, and the\n\
+                 approval is not remembered. But an agent that is fully controlled by an\n\
+                 attacker can now ask — and a user who approves without reading the dialog\n\
+                 will hand over a password.\n\
+                 \n\
+                 Turn it back off with:  keel settings --agent-reveal off"
+            );
+        } else {
+            eprintln!("AI agents can no longer be shown plaintext secrets.");
+        }
+    }
+
+    let Response::Settings(view) = client.request(&Request::ReadSettings)? else {
+        return Err(ClientError::Unexpected(
+            "expected a settings response".into(),
+        ));
+    };
+    if json {
+        print_json(&serde_json::json!(*view));
+        return Ok(());
+    }
+    println!(
+        "Auto-lock after       {}s of inactivity",
+        view.autolock_secs
+    );
+    println!("Session cap           {}s", view.max_session_secs);
+    println!(
+        "Clipboard cleared     {}s after copying",
+        view.clipboard_clear_secs
+    );
+    println!(
+        "Password history      {} previous values kept",
+        view.password_history_keep
+    );
+    println!(
+        "Network access        {}",
+        if view.allow_network {
+            "permitted"
+        } else {
+            "off"
+        }
+    );
+    println!(
+        "Reveal to AI agents   {}",
+        if view.mcp_reveal_enabled {
+            "PERMITTED — each request still needs your approval"
+        } else {
+            "off (recommended)"
+        }
+    );
+    Ok(())
+}
+
+/// List or answer pending approvals.
+fn approvals(
+    client: &mut Client,
+    allow: Option<&str>,
+    refuse: Option<&str>,
+    json: bool,
+) -> Result<(), ClientError> {
+    if allow.is_some() && refuse.is_some() {
+        return Err(ClientError::Unexpected(
+            "pass either --allow or --refuse, not both".into(),
+        ));
+    }
+    if let Some(id) = allow.or(refuse) {
+        let approved = allow.is_some();
+        client.request(&Request::ResolveApproval {
+            approval_id: id.to_owned(),
+            approved,
+        })?;
+        emit(
+            json,
+            if approved {
+                "Allowed. The program may complete that one request."
+            } else {
+                "Refused."
+            },
+            &serde_json::json!({"approval_id": id, "approved": approved}),
+        );
+        return Ok(());
+    }
+
+    let Response::PendingApprovals { approvals } = client.request(&Request::PendingApprovals)?
+    else {
+        return Err(ClientError::Unexpected(
+            "expected a pending-approvals response".into(),
+        ));
+    };
+    if json {
+        print_json(&serde_json::json!({"approvals": approvals}));
+        return Ok(());
+    }
+    if approvals.is_empty() {
+        println!("Nothing is waiting for you.");
+        return Ok(());
+    }
+    for item in &approvals {
+        println!("{}", item.approval_id);
+        println!("  Program    {} ({})", item.client_id, item.client_kind);
+        if let Some(path) = &item.executable {
+            println!("  Running    {path}");
+        }
+        println!("  Wants to   {}", item.operation.replace('_', " "));
+        if let Some(title) = &item.entry_title {
+            println!("  Entry      {title}");
+        }
+        if let Some(destination) = &item.destination {
+            println!("  Goes to    {destination}");
+        }
+        if let Some(text) = &item.agent_text {
+            // Quarantined and labelled. The program wrote this and it may be repeating
+            // instructions from a web page; it is already stripped of control characters and
+            // escape sequences, and it is printed indented so it cannot be mistaken for
+            // Keel's own output.
+            println!("  The program says (untrusted text, may be quoting a web page):");
+            for line in text.lines() {
+                println!("    | {line}");
+            }
+        }
+        println!("  Expires in {}s", item.expires_in_secs);
+        println!(
+            "  Answer with:  keel approvals --allow {}   (or --refuse)",
+            item.approval_id
+        );
+        println!();
+    }
+    Ok(())
 }
 
 /// Print recent activity from the audit log.

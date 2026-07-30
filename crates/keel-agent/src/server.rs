@@ -274,6 +274,11 @@ impl Session {
             Request::Save => self.handle_save(&client),
             Request::AuditTail { limit } => self.handle_audit_tail(&client, limit),
             Request::VaultHealth => self.handle_vault_health(&client),
+            Request::PendingApprovals => self.handle_pending_approvals(&client),
+            Request::ReadSettings => self.handle_read_settings(&client),
+            Request::SetMcpRevealEnabled { enabled } => {
+                self.handle_set_mcp_reveal(&client, enabled)
+            }
             Request::Export { passphrase } => self.handle_export(&client, &passphrase),
             Request::GrantAccess {
                 client_id,
@@ -561,12 +566,19 @@ impl Session {
                 })
             }
             Decision::Ask(request) => {
-                // The client waits; the GUI resolves it. Nothing secret is sent yet.
+                // The client is told to wait and retry; a human-driven client lists the
+                // escalation, shows a dialog, and resolves it. Nothing secret is sent yet.
+                //
+                // Not audited here. An escalation is recorded when it *resolves*, with the
+                // user's actual answer — logging it now as a denial would put a refusal in
+                // the record that nobody made, and would make the log read as though the
+                // user had said no every time they were asked.
+                let timeout_secs = request.timeout_secs;
                 let mut state = self.lock_state()?;
-                state.audit(client, "reveal_secret", Some(id), Outcome::Denied, reason);
+                let approval_id = state.policy().raise_approval(*request, crate::state::now());
                 Ok(Response::ApprovalRequired {
-                    approval_id: reference.0.clone(),
-                    timeout_secs: request.timeout_secs,
+                    approval_id,
+                    timeout_secs,
                 })
             }
             Decision::Deny { reason: why, .. } => {
@@ -1054,13 +1066,150 @@ impl Session {
                 "only the desktop app or the command line may resolve an approval",
             ));
         }
-        let reference = EntryRef(approval_id.to_owned());
-        let id = self.lock_state()?.resolve(&reference)?;
+        let now = crate::state::now();
         let mut state = self.lock_state()?;
-        state
+        // Capture what is being answered before resolving, so the audit record names the
+        // entry and the client that asked rather than the one that answered.
+        let answered = state
             .policy()
-            .resolve_reveal_approval(client, &id, approved, crate::state::now());
+            .pending_approvals(now)
+            .iter()
+            .find(|p| p.id == approval_id)
+            .map(|p| {
+                (
+                    p.request.client_id.clone(),
+                    p.request.entry,
+                    p.request.operation,
+                )
+            });
+
+        if !state.policy().resolve_approval(approval_id, approved, now) {
+            // Already answered, or timed out while the dialog was open. Not a fault: the
+            // user did nothing wrong, and the request it belonged to has already failed.
+            return Err(Failure::new(
+                ErrorCode::NotFound,
+                "that request is no longer waiting for an answer; it may have timed out",
+            ));
+        }
+
+        if let Some((asking_client, entry, operation)) = answered {
+            let outcome = if approved {
+                Outcome::ApprovedByUser
+            } else {
+                Outcome::RefusedByUser
+            };
+            // Attributed to the client that asked, not the one that answered — the log is a
+            // record of who touched the vault.
+            state.audit_as(
+                &asking_client,
+                keel_core::policy::ClientType::Gui,
+                operation,
+                entry,
+                outcome,
+            );
+            state.flush_audit();
+        }
         Ok(Response::Ok)
+    }
+
+    /// Read the vault's settings.
+    fn handle_read_settings(&mut self, client: &Client) -> Result<Response> {
+        self.authorize(client, &Operation::Status, None)?;
+        let state = self.lock_state()?;
+        let settings = state.vault()?.settings();
+        Ok(Response::Settings(Box::new(keel_proto::SettingsView {
+            autolock_secs: settings.autolock_secs,
+            clipboard_clear_secs: settings.clipboard_clear_secs,
+            max_session_secs: settings.max_session_secs,
+            password_history_keep: settings.password_history_keep,
+            allow_network: settings.allow_network,
+            mcp_reveal_enabled: settings.mcp_reveal_enabled,
+        })))
+    }
+
+    /// Turn plaintext reveals to AI agents on or off.
+    ///
+    /// The one switch behind the claim that an agent cannot exfiltrate a password, so it is
+    /// handled with more ceremony than a preference deserves:
+    ///
+    /// * Human-driven clients only. An agent that could enable its own reveals would make
+    ///   the whole thing decorative, and it is the first thing a compromised one would try.
+    /// * Saved immediately, so the answer survives a restart rather than being a
+    ///   session-local surprise.
+    /// * Audited either way. Enabling this weakens the vault's most-advertised property and
+    ///   the record should show who did it and when.
+    fn handle_set_mcp_reveal(&mut self, client: &Client, enabled: bool) -> Result<Response> {
+        if !client.client_type.is_human_driven() {
+            return Err(Failure::new(
+                ErrorCode::Denied,
+                "only the desktop app or the command line may change whether AI agents can \
+                 receive plaintext secrets",
+            ));
+        }
+        let mut state = self.lock_state()?;
+        state.touch();
+        state.vault_mut()?.settings_mut().mcp_reveal_enabled = enabled;
+        state.policy().set_mcp_reveal_enabled(enabled);
+        state.save_vault()?;
+        state.audit(
+            client,
+            if enabled {
+                "enable_agent_reveal"
+            } else {
+                "disable_agent_reveal"
+            },
+            None,
+            Outcome::Allowed,
+            None,
+        );
+        state.flush_audit();
+        Ok(Response::Ok)
+    }
+
+    /// List escalations waiting for the user.
+    ///
+    /// Only a human-driven client may ask. Letting an automated client enumerate pending
+    /// prompts would tell it exactly what the user is being shown, which is the first thing
+    /// an attacker would want in order to time a second request to arrive under the same
+    /// dialog.
+    fn handle_pending_approvals(&mut self, client: &Client) -> Result<Response> {
+        if !client.client_type.can_prompt_user() {
+            return Err(Failure::new(
+                ErrorCode::Denied,
+                "only the desktop app or the command line may list pending approvals",
+            ));
+        }
+        let now = crate::state::now();
+        let mut state = self.lock_state()?;
+        let mut approvals = Vec::new();
+        // Titles come from the vault, so the dialog states ground truth rather than
+        // anything the requesting client claimed.
+        let pending: Vec<_> = state.policy().pending_approvals(now).to_vec();
+        for item in pending {
+            let entry_title = item.request.entry.and_then(|id| {
+                state
+                    .vault()
+                    .ok()
+                    .and_then(|v| v.entry(&id).ok())
+                    .map(|e| e.title.clone())
+            });
+            approvals.push(keel_proto::PendingApprovalView {
+                approval_id: item.id,
+                client_id: item.request.client_id,
+                client_kind: item.request.client_type.name().to_owned(),
+                executable: item.request.executable,
+                operation: item.request.operation.to_owned(),
+                entry_title,
+                destination: item.request.destination.as_ref().map(Destination::describe),
+                agent_text: item.request.agent_text,
+                arm_delay_ms: item.request.arm_delay_ms,
+                expires_in_secs: item
+                    .request
+                    .timeout_secs
+                    .saturating_sub(now.saturating_sub(item.raised_at)),
+            });
+        }
+        Ok(Response::PendingApprovals { approvals })
     }
 
     // -----------------------------------------------------------------------

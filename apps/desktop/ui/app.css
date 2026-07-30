@@ -1,0 +1,478 @@
+/*
+ * Keel's window.
+ *
+ * Deliberately quiet. A password manager is infrastructure: it should be legible, fast to
+ * scan, and boring. The one place that is *not* quiet is the approval dialog, which has to
+ * interrupt properly — a prompt styled like the rest of the UI gets clicked through.
+ *
+ * Respects the system colour scheme, because a light window at 2am is its own kind of
+ * hostility.
+ */
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #16181d;
+  --ink-soft: #5b6472;
+  --line: #dfe3e9;
+  --accent: #1f6feb;
+  --accent-ink: #ffffff;
+  --danger: #b42318;
+  --danger-bg: #fef3f2;
+  --warn: #93370d;
+  --warn-bg: #fffaeb;
+  --ok: #067647;
+  --mask: #8b94a3;
+  --radius: 8px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1626;
+    --panel: #151d2e;
+    --ink: #e8edf5;
+    --ink-soft: #9aa6b8;
+    --line: #26314a;
+    --accent: #4c8dff;
+    --accent-ink: #08111f;
+    --danger: #ff9d95;
+    --danger-bg: #2d1614;
+    --warn: #f5c26b;
+    --warn-bg: #2a2113;
+    --ok: #5fd39a;
+    --mask: #6b7789;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 var(--sans);
+  /* The window chrome is the app's chrome; selecting it wholesale is never wanted. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+input,
+select {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  width: 100%;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- layout ------------------------------------------------------------- */
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+header.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+header.bar .brand {
+  font-weight: 620;
+  letter-spacing: 0.2px;
+}
+
+header.bar .spacer {
+  flex: 1;
+}
+
+.state {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+nav.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0;
+}
+
+nav.tabs button {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+nav.tabs button[aria-current="true"] {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+main {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- entry list --------------------------------------------------------- */
+
+ul.entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+ul.entries li + li {
+  border-top: 1px solid var(--line);
+}
+
+ul.entries button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 10px;
+}
+
+ul.entries button[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.title {
+  font-weight: 560;
+}
+
+.sub {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+/* A mask is drawn in monospace so it reads as "a value withheld" rather than as text. */
+.mask {
+  font-family: var(--mono);
+  color: var(--mask);
+  letter-spacing: 2px;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+}
+
+.field + .field {
+  border-top: 1px solid var(--line);
+}
+
+.field .label {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.note {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.tag {
+  display: inline-block;
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+}
+
+/* --- messages ----------------------------------------------------------- */
+
+.banner {
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.banner.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.banner.danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--bg);
+  padding: 9px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  max-width: 80vw;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+}
+
+/* --- approval dialog ---------------------------------------------------- */
+
+/*
+ * This one is meant to interrupt. Full-screen scrim, no way to click past it, and the
+ * Allow control starts disabled so the dialog cannot be dismissed by a click that was
+ * already on its way — see `arm_delay_ms`.
+ */
+#approvals:not([hidden]) {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(6 10 18 / 0.6);
+  padding: 20px;
+  z-index: 10;
+}
+
+.approval {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  width: min(560px, 100%);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.35);
+}
+
+.approval h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.approval dl {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 6px 12px;
+  margin: 14px 0;
+  font-size: 13px;
+}
+
+.approval dt {
+  color: var(--ink-soft);
+}
+
+.approval dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+/*
+ * Text the requesting client wrote. Visually quarantined, because it may be repeating
+ * instructions from a web page the agent read. Rendered with textContent, never as markup,
+ * and never used as a button label or as anything that looks like part of the app.
+ */
+.agent-text {
+  margin: 12px 0;
+  border: 1px dashed var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 9px 11px;
+  background: var(--warn-bg);
+}
+
+.agent-text .who {
+  display: block;
+  font-size: 11.5px;
+  color: var(--warn);
+  margin-bottom: 4px;
+}
+
+.agent-text .said {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.approval .actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* --- health / activity tables ------------------------------------------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  color: var(--ink-soft);
+  font-weight: 560;
+  font-size: 12px;
+}
+
+td.num {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.pill {
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.pill.critical {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.pill.weak {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.pill.ok {
+  color: var(--ok);
+}
+
+.scroll-x {
+  overflow-x: auto;
+}
+
+/* --- unlock screen ------------------------------------------------------ */
+
+.centre {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.unlock {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+.unlock .mark {
+  font-size: 22px;
+  font-weight: 640;
+  letter-spacing: 0.3px;
+  text-align: center;
+}

@@ -56,6 +56,10 @@ pub fn allowed_internal_deps(crate_name: &str) -> Option<&'static [&'static str]
         "keel-client" => &["keel-proto"],
         "keel-cli" => &["keel-client", "keel-proto", "keel-import"],
         "keel-mcp" => &["keel-client", "keel-proto"],
+        // The desktop shell. Same rule as every other client: wire types and the client
+        // library, nothing that can decrypt. The webview it hosts never receives a secret
+        // at all, so the GUI is two boundaries away from key material rather than one.
+        "keel-desktop" => &["keel-client", "keel-proto"],
         "keel-native-host" => &["keel-client", "keel-proto"],
         // The reveal overlay receives one already-decrypted secret over an
         // inherited socket. It deliberately cannot open a vault itself.
@@ -97,6 +101,7 @@ pub const NETWORK_FREE_CRATES: &[&str] = &[
     "keel-native-host",
     "keel-reveal",
     "keel-import",
+    "keel-desktop",
 ];
 
 /// Crate names that indicate an HTTP client or TLS implementation.
@@ -105,6 +110,24 @@ pub const NETWORK_FREE_CRATES: &[&str] = &[
 /// Unix domain sockets and Windows named pipes to talk to its own clients, so
 /// local socket support is expected. This list targets stacks that speak to the
 /// internet, which is the property users actually care about.
+/// The target triples Keel ships binaries for.
+///
+/// The network check runs once per triple rather than over the union of all platforms.
+/// `cargo metadata` without a platform filter merges every platform's dependencies, which
+/// makes a mobile-only dependency look like a universal one: `tauri` depends on `reqwest`
+/// for Android and iOS, and the union therefore reported an HTTP stack inside a desktop app
+/// that contains none. Verified per target, all six of these link zero HTTP crates.
+///
+/// Adding a platform here is a commitment that the gates are expected to hold for it.
+pub const SHIPPED_PLATFORMS: &[&str] = &[
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+];
+
 pub const BANNED_NETWORK_CRATES: &[&str] = &[
     // HTTP clients
     "reqwest",

@@ -121,13 +121,26 @@ keel import ~/Downloads/passwords.csv --dry-run   # see what it found
 keel import ~/Downloads/passwords.csv --shred     # import, then delete the file
 ```
 
+There is a desktop window too — `keel-desktop` — which does everything above without a
+terminal, shows the health report and the activity log, and is where approval prompts for AI
+requests appear. It never receives a password: entries show as bullets, and copying is done
+by the agent.
+
 Giving an AI agent access — it starts with nothing, and you grant explicitly:
 
 ```sh
 keel grant claude-code --scope metadata --scope use --tag 'work/*' --minutes 30
 keel grants
 keel revoke claude-code
+
+keel approvals                          # what is waiting for you, and how to answer
+keel settings --agent-reveal on         # let agents ask to *see* a password (off by default)
 ```
+
+That last one deserves a note. With it off — the shipped default — an agent can log you into
+things and cannot read a password, whatever it has been granted. Turning it on does not make
+reveals automatic: each one raises a prompt naming the program, its verified path, and the
+entry, and approval covers exactly one request.
 
 Checking on your passwords, and on what has been touching them:
 
@@ -197,11 +210,10 @@ Dependency direction is enforced by `cargo xtask check-layering`; see
 
 Stated so nothing here is mistaken for a bug:
 
-- **The desktop app and browser extension.** The command line and the MCP server are
-  complete, so nothing is blocked on them — but approval dialogs for AI requests need a
-  window, which means `reveal_secret` has no way to ask you and fails closed until the app
-  exists. Copying to the clipboard does work: the agent does it directly, since it is
-  already the process holding the secret.
+- **The browser extension.** Autofill needs it; everything else works without it.
+- **Revealing a password on screen.** By design this belongs in a small native overlay that
+  no webview can read, and that overlay is not built. Copy to the clipboard instead, or use
+  `keel get --show` at a terminal.
 - **Typing a secret into the focused window.** Refused rather than approximated: without a
   check that the window receiving the keystrokes is the one you were shown, typing is
   strictly worse than the clipboard, because it delivers the password to whatever grabbed

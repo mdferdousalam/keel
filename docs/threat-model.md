@@ -170,6 +170,19 @@ Can call any exposed tool, arbitrarily often, with attacker-authored arguments.
 log you into things and manage entries, and cannot exfiltrate a single password
 even if it is fully controlled by an attacker.
 
+**If you turn reveal on.** `keel settings --agent-reveal on` makes plaintext reveals
+*possible*; it does not make them automatic. Every one still raises a per-request prompt
+that names the program, its verified path on disk, and the entry from the vault, with the
+agent's own justification quarantined and labelled as untrusted. Approval is **one-shot**:
+one "yes" permits one reveal, and the next request asks again. The setting is stored in the
+vault, so it survives a restart — and a vault created before the setting existed migrates
+with it **off**, because that vault never consented to it.
+
+What this does not defend against, said plainly: a user who approves without reading. The
+750ms arm delay on the Allow control, the focus starting on Refuse, and the absence of any
+"always allow" are there to make reading the default rather than the exception, but a person
+determined to click through will succeed. That is why the setting is off to begin with.
+
 **Honest limit.** A user who clicks Allow on everything. The delay and the
 default-deny focus fight approval fatigue; they cannot cure it.
 
@@ -278,6 +291,34 @@ Several guarantees are weaker without these, and the model assumes them:
 Revisit this document when: the vault format version changes; a new IPC client
 type is added; the MCP tool surface changes; a network-capable dependency is
 introduced; or any approval flow is modified.
+
+## The desktop window, and the one secret that passes through it
+
+The window is a webview, which means a browser: a garbage-collected heap whose strings
+cannot be zeroized, a JIT, a DOM, and a devtools protocol. Keel therefore does not put
+passwords in it.
+
+**No secret stored in the vault ever reaches the window.** Entries arrive with their secret
+fields replaced by a fixed run of bullets. Actions that need the real value — copying to the
+clipboard, generating and storing a new password — are carried out by the agent, which
+already holds it decrypted; the window asks for the *action* and receives a sentence
+describing what happened. The value does not enter the window, and does not enter the
+desktop shell process either. This is enforced by the return types in `masking.rs`, none of
+which has a field capable of holding a password, and checked by a test that stores a canary
+password and searches every command's serialised result for it. That test was verified to
+fail when a leak was deliberately introduced.
+
+**The master passphrase does pass through it**, on its way from the field you type it into
+to the agent. There is no way around that in a webview short of a separate native prompt,
+which is not built. So the precise claim is: *no secret stored in the vault is ever given to
+the window.* The passphrase you are typing right now is a different thing from the hundred
+passwords the vault holds, and treating them as the same would overstate what this design
+achieves. The field is cleared as soon as it is sent, which shortens how long the value is
+reachable from the DOM and does not scrub it from the heap — nothing in a webview can.
+
+Revealing a stored password on screen is deliberately **not** a feature of the window. It
+belongs in a small native overlay that no webview can read and that screenshots come back
+blank from, and that overlay is not built yet.
 
 ## What the audit log does and does not prove
 

@@ -1,0 +1,39 @@
+[package]
+name = "keel-desktop"
+description = "Keel desktop application: a masked-only shell over the Keel agent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "keel-desktop"
+path = "src/main.rs"
+
+[lib]
+name = "keel_desktop"
+path = "src/lib.rs"
+
+# Note what is absent: keel-crypto, keel-format, keel-core, keel-store. The desktop shell
+# is a client like any other, and `cargo xtask check-layering` fails the build if that
+# changes. It cannot decrypt anything, and the webview it hosts is further from the keys
+# than the shell is.
+[dependencies]
+keel-client = { path = "../../../crates/keel-client" }
+keel-proto = { path = "../../../crates/keel-proto" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { workspace = true }
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dev-dependencies]
+# The GUI-invariant test drives a real agent, so it needs a real client and a temp dir.
+keel-client = { path = "../../../crates/keel-client" }
+tempfile = { workspace = true }

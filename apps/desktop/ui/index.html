@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Keel</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <!--
+      No bundler, no framework, no npm.
+
+      The plan called for Svelte and Vite. Plain ES modules were chosen instead, for the
+      same reason the browser extension has no third-party JavaScript: a build step is a
+      supply chain, and this is the window that stands between a person and every password
+      they own. Removing npm from the release path also removes the largest obstacle to
+      reproducible builds, since `npm install` is not reproducible in any useful sense.
+
+      The cost is real and small — no reactive framework, so rendering is explicit DOM
+      construction. For a list, a detail panel, and a few modals that is not a burden worth
+      four hundred transitive packages.
+    -->
+    <div id="app" aria-live="polite"></div>
+    <noscript>Keel's window needs JavaScript to talk to the agent.</noscript>
+
+    <!--
+      Approval dialogs live outside #app so a re-render of the main view cannot destroy a
+      dialog mid-decision. A prompt that vanished because a background poll refreshed the
+      entry list would be, at best, baffling.
+    -->
+    <div id="approvals" hidden></div>
+
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

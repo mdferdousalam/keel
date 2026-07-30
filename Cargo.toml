@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "apps/desktop/src-tauri",
     "crates/keel-crypto",
     "crates/keel-format",
     "crates/keel-hardening",
@@ -63,6 +64,13 @@ postcard = { version = "1.1", features = ["alloc"] }
 thiserror = "2"
 hex = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
+
+# --- desktop shell ---
+# Only `apps/desktop/src-tauri` may use these. The GUI is a large dependency tree by
+# necessity — a webview is a browser — which is exactly why it is kept on the far side of
+# the client boundary from anything that touches a key.
+tauri = { version = "2", default-features = false, features = ["wry", "common-controls-v6"] }
+tauri-build = { version = "2", default-features = false }
 
 # --- platform ---
 # Clipboard. Only the agent gets this: a secret on the clipboard is placed there by the

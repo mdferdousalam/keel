@@ -313,6 +313,13 @@ impl AgentState {
         // lock/unlock round trip with no tampering at all.
         self.audit = Some(resume_audit_log(&self.paths.audit(), audit_key));
 
+        // Apply the persisted reveal setting to the fresh policy engine. Forgetting this
+        // would silently re-disable a switch the user had deliberately turned on, and the
+        // error text tells them to look in Settings — so the setting has to actually take
+        // effect, not merely be stored.
+        self.policy
+            .set_mcp_reveal_enabled(settings.mcp_reveal_enabled);
+
         self.vault = Some(vault);
         self.handles.clear();
         self.handle_of.clear();
@@ -421,6 +428,31 @@ impl AgentState {
             entry,
             outcome,
             reason,
+        });
+    }
+
+    /// Record an audit event attributed to a client other than the caller.
+    ///
+    /// Used when the user answers an escalation: the record should name the client that
+    /// *asked* for the secret, not the desktop app that carried the answer. Attributing it
+    /// to the GUI would make the log say the app revealed something to itself.
+    pub fn audit_as(
+        &mut self,
+        client_id: &str,
+        client_type: keel_core::policy::ClientType,
+        operation: &str,
+        entry: Option<Id>,
+        outcome: Outcome,
+    ) {
+        let Some(log) = &mut self.audit else { return };
+        let _ = log.append(&AuditEvent {
+            timestamp: now(),
+            client_id,
+            client_type,
+            operation,
+            entry,
+            outcome,
+            reason: None,
         });
     }
 

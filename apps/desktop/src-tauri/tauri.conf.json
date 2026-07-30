@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Keel",
+  "version": "0.1.0",
+  "identifier": "dev.keel.desktop",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "Keel",
+        "width": 980,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 520,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; connect-src ipc: http://ipc.localhost",
+      "freezePrototype": true,
+      "assetProtocol": {
+        "enable": false
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "dmg",
+      "deb",
+      "rpm",
+      "appimage",
+      "msi",
+      "nsis"
+    ],
+    "shortDescription": "A local-first password manager",
+    "longDescription": "Keel keeps your passwords in one encrypted file on this machine. No server, no account, no telemetry.",
+    "category": "Utility",
+    "copyright": "GPL-3.0-or-later",
+    "licenseFile": "../../../LICENSE",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}

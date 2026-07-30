@@ -38,7 +38,7 @@ use crate::limits;
 use crate::padding::{self, MANIFEST_BLOCK};
 
 /// Schema version for the manifest, independent of the file format version.
-pub const MANIFEST_SCHEMA: u16 = 2;
+pub const MANIFEST_SCHEMA: u16 = 3;
 
 /// Identifier type used for entries, folders, and attachments.
 pub type Id = [u8; 16];
@@ -380,6 +380,17 @@ pub struct VaultSettings {
     /// One switch rather than several, defaulting to off, so "this program does not
     /// talk to the internet" is a single verifiable statement.
     pub allow_network: bool,
+    /// Whether AI agents may receive plaintext secrets at all.
+    ///
+    /// **Off by default, and that default is the product's central claim**: in the shipped
+    /// configuration an agent can act with a password and cannot read one. Turning this on
+    /// does not make reveals automatic — each one still needs a per-request approval — it
+    /// only makes the escalation possible instead of an outright refusal.
+    ///
+    /// Persisted in the vault rather than held in memory so the answer survives a restart.
+    /// A user who deliberately enabled it should not find it silently off tomorrow, and a
+    /// user who never touched it should never find it on.
+    pub mcp_reveal_enabled: bool,
 }
 
 impl Default for VaultSettings {
@@ -391,6 +402,8 @@ impl Default for VaultSettings {
             password_history_keep: 10,
             generator: GeneratorDefaults::default(),
             allow_network: false,
+            // The default that makes the headline claim true.
+            mcp_reveal_enabled: false,
         }
     }
 }
@@ -465,6 +478,70 @@ pub struct AuditAnchor {
     pub tip: [u8; 32],
 }
 
+/// Settings as they were before `mcp_reveal_enabled` existed.
+#[derive(Serialize, Deserialize)]
+struct VaultSettingsV2 {
+    autolock_secs: u32,
+    clipboard_clear_secs: u32,
+    max_session_secs: u32,
+    password_history_keep: u32,
+    generator: GeneratorDefaults,
+    allow_network: bool,
+}
+
+impl VaultSettingsV2 {
+    fn upgrade(self) -> VaultSettings {
+        VaultSettings {
+            autolock_secs: self.autolock_secs,
+            clipboard_clear_secs: self.clipboard_clear_secs,
+            max_session_secs: self.max_session_secs,
+            password_history_keep: self.password_history_keep,
+            generator: self.generator,
+            allow_network: self.allow_network,
+            // Off, always. A vault that predates the setting never consented to it, and
+            // defaulting it on during a migration would silently weaken every existing
+            // vault — the worst possible direction for a default to move on upgrade.
+            mcp_reveal_enabled: false,
+        }
+    }
+}
+
+/// The manifest layout at schema 2: `audit_anchor` present, settings without
+/// `mcp_reveal_enabled`.
+#[derive(Serialize, Deserialize)]
+struct ManifestV2 {
+    schema: u16,
+    entries: Vec<EntryMeta>,
+    folders: Vec<Folder>,
+    trash: Vec<TrashedEntry>,
+    settings: VaultSettingsV2,
+    paired_clients: Vec<PairedClient>,
+    grants: Vec<PersistedGrant>,
+    free_space: Vec<(u64, u64)>,
+    audit_anchor: Option<AuditAnchor>,
+}
+
+impl ManifestV2 {
+    fn decode(unpadded: &[u8]) -> Result<Self> {
+        postcard::from_bytes(unpadded)
+            .map_err(|_| Error::Malformed("manifest could not be deserialized"))
+    }
+
+    fn upgrade(self) -> Manifest {
+        Manifest {
+            schema: self.schema,
+            entries: self.entries,
+            folders: self.folders,
+            trash: self.trash,
+            settings: self.settings.upgrade(),
+            paired_clients: self.paired_clients,
+            grants: self.grants,
+            free_space: self.free_space,
+            audit_anchor: self.audit_anchor,
+        }
+    }
+}
+
 /// The manifest layout before `audit_anchor` existed.
 ///
 /// Kept so a vault written by an earlier build still opens. It is deliberately a separate
@@ -480,7 +557,7 @@ struct ManifestV1 {
     entries: Vec<EntryMeta>,
     folders: Vec<Folder>,
     trash: Vec<TrashedEntry>,
-    settings: VaultSettings,
+    settings: VaultSettingsV2,
     paired_clients: Vec<PairedClient>,
     grants: Vec<PersistedGrant>,
     free_space: Vec<(u64, u64)>,
@@ -504,7 +581,7 @@ impl ManifestV1 {
             entries: self.entries,
             folders: self.folders,
             trash: self.trash,
-            settings: self.settings,
+            settings: self.settings.upgrade(),
             paired_clients: self.paired_clients,
             grants: self.grants,
             free_space: self.free_space,
@@ -576,10 +653,13 @@ impl Manifest {
         // that either matches or does not.
         let manifest: Self = match postcard::from_bytes::<Self>(unpadded) {
             Ok(manifest) => manifest,
-            // Schema 1 predates `audit_anchor`. Read it and carry the vault forward with no
-            // anchor, which is exactly right: the old vault never committed to an audit
-            // length, so claiming otherwise would invent evidence.
-            Err(_) => ManifestV1::decode(unpadded)?.upgrade(),
+            // Older layouts, newest first. Schema 2 predates `mcp_reveal_enabled`; schema 1
+            // also predates `audit_anchor`. Each upgrade path chooses the *safe* value for
+            // a field the old vault never had, never the permissive one.
+            Err(_) => match ManifestV2::decode(unpadded) {
+                Ok(v2) => v2.upgrade(),
+                Err(_) => ManifestV1::decode(unpadded)?.upgrade(),
+            },
         };
         if manifest.schema == 0 || manifest.schema > MANIFEST_SCHEMA {
             return Err(Error::Malformed(
@@ -716,6 +796,18 @@ mod tests {
         m
     }
 
+    /// Settings in the pre-`mcp_reveal_enabled` shape, for building old manifests in tests.
+    fn old_settings(from: &VaultSettings) -> VaultSettingsV2 {
+        VaultSettingsV2 {
+            autolock_secs: from.autolock_secs,
+            clipboard_clear_secs: from.clipboard_clear_secs,
+            max_session_secs: from.max_session_secs,
+            password_history_keep: from.password_history_keep,
+            generator: from.generator,
+            allow_network: from.allow_network,
+        }
+    }
+
     #[test]
     fn a_schema_1_manifest_still_opens() {
         // The migration that matters. Anyone who built from source before `audit_anchor`
@@ -730,7 +822,7 @@ mod tests {
             entries: current.entries.clone(),
             folders: current.folders.clone(),
             trash: current.trash.clone(),
-            settings: current.settings,
+            settings: old_settings(&current.settings),
             paired_clients: current.paired_clients.clone(),
             grants: current.grants.clone(),
             free_space: current.free_space.clone(),
@@ -756,7 +848,7 @@ mod tests {
             entries: current.entries.clone(),
             folders: current.folders.clone(),
             trash: current.trash.clone(),
-            settings: current.settings,
+            settings: old_settings(&current.settings),
             paired_clients: current.paired_clients.clone(),
             grants: current.grants.clone(),
             free_space: current.free_space.clone(),
@@ -769,6 +861,66 @@ mod tests {
         let reread = Manifest::decode_padded(&rewritten).unwrap();
         assert_eq!(reread.schema, MANIFEST_SCHEMA);
         assert_eq!(reread.entries, current.entries);
+    }
+
+    #[test]
+    fn a_schema_2_manifest_still_opens_with_agent_reveal_off() {
+        // The migration that matters most for safety. A vault written before the setting
+        // existed never consented to it, so the upgrade must choose the restrictive value.
+        // Defaulting it on would silently weaken every existing vault — the worst direction
+        // for a default to move during an upgrade nobody asked for.
+        let current = sample();
+        let v2 = ManifestV2 {
+            schema: 2,
+            entries: current.entries.clone(),
+            folders: current.folders.clone(),
+            trash: current.trash.clone(),
+            settings: old_settings(&current.settings),
+            paired_clients: current.paired_clients.clone(),
+            grants: current.grants.clone(),
+            free_space: current.free_space.clone(),
+            audit_anchor: Some(AuditAnchor {
+                seq: 7,
+                tip: [3u8; 32],
+            }),
+        };
+        let padded = padding::pad(&postcard::to_allocvec(&v2).unwrap(), MANIFEST_BLOCK).unwrap();
+
+        let decoded = Manifest::decode_padded(&padded).expect("a schema-2 manifest must open");
+        assert_eq!(decoded.entries, current.entries);
+        assert!(
+            !decoded.settings.mcp_reveal_enabled,
+            "a migrated vault must not gain permission to reveal secrets to agents"
+        );
+        // The anchor it did have must survive, unlike the setting it did not.
+        assert_eq!(decoded.audit_anchor.map(|a| a.seq), Some(7));
+        assert_eq!(decoded.schema, 2, "reading must not rewrite the schema");
+    }
+
+    #[test]
+    fn a_schema_1_manifest_also_lands_with_agent_reveal_off() {
+        let current = sample();
+        let v1 = ManifestV1 {
+            schema: 1,
+            entries: current.entries.clone(),
+            folders: current.folders.clone(),
+            trash: current.trash.clone(),
+            settings: old_settings(&current.settings),
+            paired_clients: current.paired_clients.clone(),
+            grants: current.grants.clone(),
+            free_space: current.free_space.clone(),
+        };
+        let padded = padding::pad(&postcard::to_allocvec(&v1).unwrap(), MANIFEST_BLOCK).unwrap();
+        let decoded = Manifest::decode_padded(&padded).expect("a schema-1 manifest must open");
+        assert!(!decoded.settings.mcp_reveal_enabled);
+        assert_eq!(decoded.audit_anchor, None);
+    }
+
+    #[test]
+    fn the_shipped_default_forbids_revealing_secrets_to_agents() {
+        // The single line behind the product's central claim. Worth a test of its own so a
+        // change to it cannot pass as an incidental edit to a settings struct.
+        assert!(!VaultSettings::default().mcp_reveal_enabled);
     }
 
     #[test]

@@ -51,10 +51,25 @@ Commands:
 }
 
 /// Load `cargo metadata` for the whole workspace.
-fn load_metadata() -> Result<Metadata, String> {
+///
+/// `platform` restricts the resolved graph to one target triple. That matters more than it
+/// looks: without it, `cargo metadata` returns the **union** of every platform's
+/// dependencies, so a crate with an Android-only HTTP client appears to link HTTP
+/// everywhere. `tauri` is exactly that case — it depends on `reqwest`, gated to Android and
+/// non-macOS Apple targets, neither of which Keel builds for. Checking the union reported a
+/// network stack in the desktop app that no shipped binary contains.
+///
+/// Passing `None` keeps the union, which is the right choice for the layering check: an
+/// internal dependency that only exists on one platform is still an internal dependency and
+/// still has to obey the direction rules.
+fn load_metadata_for(platform: Option<&str>) -> Result<Metadata, String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let output = Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--all-features"])
+    let mut command = Command::new(cargo);
+    command.args(["metadata", "--format-version", "1", "--all-features"]);
+    if let Some(triple) = platform {
+        command.args(["--filter-platform", triple]);
+    }
+    let output = command
         .output()
         .map_err(|e| format!("could not run `cargo metadata`: {e}"))?;
     if !output.status.success() {
@@ -64,6 +79,11 @@ fn load_metadata() -> Result<Metadata, String> {
         ));
     }
     metadata::parse(&output.stdout)
+}
+
+/// Load metadata for every platform, unfiltered.
+fn load_metadata() -> Result<Metadata, String> {
+    load_metadata_for(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -151,9 +171,35 @@ fn check_layering() -> Result<(), String> {
 /// `keel-breach` is exempt by design: it is the opt-in, off-by-default breach
 /// checker and the only crate permitted to reach the internet.
 fn check_network() -> Result<(), String> {
-    let meta = load_metadata()?;
     let mut failures = Vec::new();
+    // Checked once per platform Keel ships, rather than once over the union of all
+    // platforms. The union answers a question nobody asked — "could this crate reach HTTP on
+    // *some* target, including ones we never build?" — and answering it produced a false
+    // report of a network stack in the desktop app.
+    for triple in rules::SHIPPED_PLATFORMS {
+        let meta = load_metadata_for(Some(triple))?;
+        check_network_on(&meta, triple, &mut failures)?;
+    }
 
+    if failures.is_empty() {
+        println!(
+            "network isolation: OK ({} crates verified free of HTTP/TLS stacks on {} platforms)",
+            rules::NETWORK_FREE_CRATES.len(),
+            rules::SHIPPED_PLATFORMS.len()
+        );
+        return Ok(());
+    }
+    Err(format!(
+        "network isolation violations:\n\n{}",
+        failures.join("\n\n")
+    ))
+}
+
+fn check_network_on(
+    meta: &Metadata,
+    triple: &str,
+    failures: &mut Vec<String>,
+) -> Result<(), String> {
     for root in rules::NETWORK_FREE_CRATES {
         let Some(root_pkg) = meta.package_by_name(root) else {
             return Err(format!(
@@ -200,25 +246,15 @@ fn check_network() -> Result<(), String> {
                     .get(*banned)
                     .map_or("?", std::string::String::as_str);
                 failures.push(format!(
-                    "`{root}` can reach the network stack `{banned}` (pulled in via `{via}`).\n    \
-                     The vault core must not link an HTTP or TLS client. If this is only needed \
-                     at build time or in tests, scope it so it does not appear in the normal \
-                     dependency graph."
+                    "`{root}` can reach the network stack `{banned}` on {triple} (pulled in \
+                     via `{via}`).\n    \
+                     The vault core must not link an HTTP or TLS client. If this is only \
+                     needed at build time, in tests, or on a platform Keel does not ship, \
+                     scope it so it does not appear in the normal dependency graph for a \
+                     shipped target."
                 ));
             }
         }
     }
-
-    if failures.is_empty() {
-        println!(
-            "network isolation: OK ({} crates verified free of HTTP/TLS stacks)",
-            rules::NETWORK_FREE_CRATES.len()
-        );
-        Ok(())
-    } else {
-        Err(format!(
-            "network isolation violations:\n\n  {}\n",
-            failures.join("\n\n  ")
-        ))
-    }
+    Ok(())
 }

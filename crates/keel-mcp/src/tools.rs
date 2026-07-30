@@ -524,6 +524,24 @@ pub fn render(name: &str, response: &Response) -> ToolResult {
              this server will not relay. Exporting is done by the user with `keel export`.",
         ),
 
+        // Nor the queue of prompts the user is currently being shown. Knowing what dialog
+        // is open, and for what, is exactly what an attacker needs to time a second request
+        // to arrive while the user's attention is on the first — so the agent refuses this
+        // to any client that cannot itself prompt, and no tool here asks for it.
+        Response::PendingApprovals { .. } => ToolResult::failure(
+            "Keel returned the list of prompts awaiting the user, which no tool here \
+             requests. Approvals are shown and answered in the Keel window.",
+        ),
+
+        // Settings are the user's, not the agent's. Reading them would tell a client
+        // exactly which protections are on — including whether reveals are permitted —
+        // which is reconnaissance, and there is no tool for changing them because an agent
+        // that could turn on its own reveal permission would make the switch decorative.
+        Response::Settings(_) => ToolResult::failure(
+            "Keel returned its settings, which no tool here requests. Settings are changed \
+             by the user in the Keel window or with `keel settings`.",
+        ),
+
         Response::Hello { .. } => ToolResult::text("Connected."),
 
         Response::Error { code, message } => {

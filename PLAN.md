@@ -4,39 +4,90 @@
 
 | Phase | State | Notes |
 |---|---|---|
-| 0 — Skeleton, CI, gates, docs | **Done** | Both architectural gates verified to fail when violated |
-| 1 — keel-crypto, keel-format, keel-hardening | **Done** | ~35M fuzz executions, zero crashes |
-| 2 — keel-store, keel-core | **Done** | Crash safety verified by SIGKILL; policy engine complete |
-| 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Complete CLI surface; clipboard, audit log reader, health report, export |
-| 3 — keel-reveal | Not started | Native non-capturable overlay for plaintext display |
-| 4 — Tauri desktop GUI | Not started | Blocks approval dialogs, and therefore `reveal_secret` for AI clients |
+| 0 — Skeleton, CI, gates, docs | **Done** | Both gates verified to fail when violated |
+| 1 — keel-crypto, keel-format, keel-hardening | **Done** | ~34M fuzz executions after the last format change, zero crashes |
+| 2 — keel-store, keel-core | **Done** | Crash safety verified by SIGKILL; policy engine complete including the approval lifecycle |
+| 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Full CLI surface |
+| 3 — keel-reveal | Not started | Native non-capturable overlay. The only thing blocking on-screen reveal in the GUI. |
+| 4 — Tauri desktop GUI | **Done** | Masked-only window, approval dialogs, health, activity, access, settings. Canary test verified to fail when a leak is injected. |
 | 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects |
 | 5 — Browser extension | Not started | Native host, MV3 extension, SAS pairing |
-| 6 — MCP server | **Done** | Verified: a fully-granted agent still cannot obtain a password |
-| 7 — Release pipeline | **Mostly done** | Workflows, `verify-release`, VERIFY/REPRODUCE docs. Signing keys not generated; packaging configs not written. |
+| 6 — MCP server | **Done** | Both halves verified: the default cannot leak a password, and the opt-in works one request at a time |
+| 7 — Release pipeline | **Mostly done** | Signing keys not generated; packaging configs not written |
 
-**Working:** `init`, `unlock`, `lock`, `status`, `list`, `search`, `add`, `get`, `rotate`,
-`rm`, `generate`, `save`, `import`, `export`, `audit`, `log`, `grant`, `grants`, `revoke`,
-`verify-release`, with `--json` throughout. Plus `keel-mcp`. **497 tests**, clippy clean
-under `-D warnings`, both gates passing.
-
-The CLI surface from §11 is complete except `keel agent --foreground` details and
-`setup-browser`, which belongs with the extension.
+**Working:** the whole CLI (`init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
+`get`, `rotate`, `rm`, `generate`, `save`, `import`, `export`, `audit`, `log`, `settings`,
+`approvals`, `grant`, `grants`, `revoke`, `verify-release`), the desktop window, and
+`keel-mcp`.
 
 **Not working, deliberately loud about it:**
 
-- **Typing into the focused window.** Needs a check that the window receiving keystrokes is
-  the one the user was shown. Without it, typing is worse than the clipboard: it delivers
-  the secret to whatever took focus and leaves no trace. Refuses and points at the
-  clipboard.
-- **Browser fill.** Needs the extension.
-- **`reveal_secret` for AI clients.** Needs a window to ask in, so it fails closed.
+- **Revealing a password on screen.** Belongs in `keel-reveal`, a native overlay no webview
+  can read. Not built, so the GUI has no reveal at all — copy instead.
+- **Typing into the focused window.** Refused until it can verify which window has focus;
+  without that it is worse than the clipboard.
+- **Browser fill and autofill.** Needs the extension.
 - **Windows.** Needs the named-pipe transport with a current-user-only DACL.
-- **`--vault <path>`** from §11 was never added; the vault path comes from `KEEL_VAULT` or
-  the agent's argv. Worth adding for the documented CLI to match reality.
-- **`keel audit`'s breach check.** The offline Bloom filter of ~10M breached passwords is
-  not built. The strength estimator recognises structure and ~300 famous passwords, and
-  says so rather than implying corpus coverage.
+- **`--vault <path>`** from §11; the path comes from `KEEL_VAULT` or the agent's argv.
+- **The breach Bloom filter.** The strength estimator recognises structure and ~300 famous
+  passwords and says so rather than implying corpus coverage.
+
+## Deliberate departures from this plan
+
+Each of these was decided during implementation, and the reasoning matters more than the
+choice:
+
+1. **The GUI has no framework and no npm.** The plan specified Svelte and Vite. A build step
+   is a supply chain, and this is the window between a person and every password they own;
+   `npm install` is also the single largest obstacle to reproducible builds. Cost: rendering
+   is explicit DOM construction. That also removes `innerHTML` from the codebase entirely,
+   which removes the class of bug where an entry title — or text an AI agent wrote — becomes
+   markup.
+2. **The clipboard lives in the agent, not the shell.** The plan routed copies through
+   `src-tauri`. Doing it in the agent means the plaintext never enters the GUI process at
+   all, which is strictly stronger, and it made the clipboard work without waiting for the
+   GUI.
+3. **zxcvbn was not adopted.** 37 crates including a backtracking regex engine, inside the
+   process holding the master key, to answer "is this obviously terrible?". A focused
+   structural estimator does that job and says what it is.
+4. **Escalations are raised without a GUI attached.** The plan failed closed by refusing to
+   ask when no window was open. Once `keel approvals` existed, that told users on headless
+   machines to open a window that does not exist there. Failing closed is preserved by the
+   timeout instead — nothing is ever auto-approved.
+
+## Findings from implementation worth keeping
+
+Bugs the plan did not anticipate, that only appeared under test:
+
+1. **The approval mechanism never worked.** `resolve_reveal_approval` cleared an in-flight
+   flag and nothing else, so an approved retry was escalated again forever — a reveal could
+   not succeed no matter what the user did. The `ApprovalRequest` details were discarded, so
+   no dialog could have been rendered either. And the setting the refusal message told users
+   to change (`enable it in Settings`) did not exist: `set_mcp_reveal_enabled` was dead code.
+   All three are now built and tested end to end.
+2. **A timed-out escalation deadlocked the client.** `reveal_in_flight` was never cleared on
+   expiry, so an unattended timeout left the client told "another reveal is already awaiting
+   approval" for the rest of the session.
+3. **The audit chain broke on every lock/unlock.** `AuditLog::new` restarts at sequence 1, so
+   a second session appended records numbered from 1 onto an existing chain. Normal daily use
+   would have reported tampering.
+4. **Deleting records from the end of the audit log was undetectable.** Any prefix of a hash
+   chain is a valid chain. Fixed with an anchor in the authenticated manifest committing to
+   count *and* tip.
+5. **The network gate reported a violation that did not exist.** It walked
+   `cargo metadata`'s all-platform union, where `tauri`'s Android/iOS-only `reqwest` looks
+   universal. Now checked per shipped target, which is both correct and stronger.
+6. **A killed agent stranded the user**, and **a second agent could hijack a live agent's
+   socket**.
+7. **The AAD design bug** below, which would have made passphrase changes O(vault size).
+8. **Two identical flaky tests** counted passphrase words by splitting on `-`, which is both
+   the default separator and a character inside four EFF wordlist entries.
+9. **The audit log was created 0644** by umask.
+10. **`audit_tail` is not exposed as an MCP tool** though §7.2 contemplated it. Open decision,
+    not an oversight; the tests deliberately do not assert either way.
+11. **The exhaustive `match` on `Response` in keel-mcp caught five omissions** as variants
+    were added, each forcing a deliberate decision about whether an agent should see the new
+    data. Worth preserving rather than adding a catch-all arm.
 
 ## Findings from implementation worth keeping
 

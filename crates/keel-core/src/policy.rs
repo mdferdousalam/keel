@@ -744,6 +744,35 @@ struct ClientState {
 // The engine
 // ---------------------------------------------------------------------------
 
+/// An approval the user has been asked for and has not yet answered.
+///
+/// Stored so a GUI can render the dialog. The details come from the vault and from the
+/// verified peer, never from the requesting client — see [`ApprovalRequest`].
+#[derive(Debug, Clone)]
+pub struct PendingApproval {
+    /// Opaque identifier the GUI passes back when the user answers.
+    pub id: String,
+    /// Everything needed to render the dialog truthfully.
+    pub request: ApprovalRequest,
+    /// When it was raised, Unix seconds. Used for the timeout.
+    pub raised_at: u64,
+}
+
+/// A user's answer, waiting for the request that raised it to be retried.
+///
+/// Approval is **one-shot**. The client whose request was escalated retries, that retry
+/// consumes this, and a second retry is escalated again. Without that, one "yes" would
+/// authorise unlimited reveals of the same entry for as long as the answer lingered —
+/// which is the difference between per-request approval and a silent grant.
+#[derive(Debug, Clone)]
+struct ResolvedApproval {
+    client_id: String,
+    operation: &'static str,
+    entry: Option<Id>,
+    approved: bool,
+    resolved_at: u64,
+}
+
 /// Authorization state for one unlocked session.
 ///
 /// Dropped when the vault locks, which is what makes every non-persisted grant vanish
@@ -752,6 +781,12 @@ struct ClientState {
 pub struct PolicyEngine {
     grants: Vec<Grant>,
     clients: BTreeMap<String, ClientState>,
+    /// Escalations raised and not yet answered.
+    pending: Vec<PendingApproval>,
+    /// Answers not yet consumed by the retry they authorise.
+    resolved: Vec<ResolvedApproval>,
+    /// Counter for approval identifiers, so each is distinct within a session.
+    next_approval: u64,
     /// Whether reveal is available to MCP clients at all.
     ///
     /// Off by default. This is the setting behind the claim that an agent cannot
@@ -971,18 +1006,32 @@ impl PolicyEngine {
 
         // Reveals get the extra treatment on top: one at a time, and a human in the loop.
         if let Operation::RevealSecret { entry, reason } = operation {
+            // Has the user already answered this exact request? Consume the answer; it is
+            // good for one attempt only.
+            if let Some(approved) = self.take_resolved(&client.id, operation, now) {
+                return if approved {
+                    Decision::Allow
+                } else {
+                    Decision::deny("you refused this request")
+                };
+            }
             if let Some(decision) = self.check_reveal_in_flight(&client.id) {
                 return decision;
             }
             if !client.client_type.can_prompt_user() {
-                if !self.gui_attached {
-                    // Fail closed. Auto-approving because nobody is reachable would
-                    // invert the entire point of the approval step.
-                    return Decision::deny_uncounted(
-                        "revealing a secret needs your approval, and Keel's window is \
-                         not open; open Keel and try again",
-                    );
-                }
+                // The escalation is raised whether or not a window is open. It used to be
+                // refused outright unless a GUI was attached, which made sense when the GUI
+                // was the only thing that could answer — but the command line can answer
+                // now (`keel approvals`), and a headless machine with a person at a terminal
+                // was being told to open a window that does not exist there.
+                //
+                // Failing closed is preserved by the *timeout*, not by refusing to ask: if
+                // nobody answers, the escalation expires and the reveal never happens. What
+                // is not preserved, and must never be, is auto-approving because nobody is
+                // reachable — that would invert the entire point.
+                //
+                // A rogue client cannot use this to exhaust memory: `reveal_in_flight`
+                // allows one pending escalation per client, and rate limits cap the churn.
                 return Decision::Ask(Box::new(ApprovalRequest {
                     client_id: client.id.clone(),
                     client_type: client.client_type,
@@ -1144,6 +1193,128 @@ impl PolicyEngine {
         }
     }
 
+    // -- the escalation lifecycle ------------------------------------------
+    //
+    // Three steps, and the middle one is where a GUI lives:
+    //
+    //   1. `check` returns `Ask`; the caller hands the request to `raise_approval`, which
+    //      stores it and returns an id to send back to the waiting client.
+    //   2. A human-driven client lists `pending_approvals`, shows a dialog, and calls
+    //      `resolve_approval`.
+    //   3. The original client retries. `evaluate` finds the answer, consumes it, and
+    //      allows or denies that one attempt.
+    //
+    // The retry model rather than a blocking one keeps the agent's threads free and means a
+    // client that gives up waiting cannot leave a thread parked on a mutex.
+
+    /// Record an escalation and return the identifier the user's answer will carry.
+    pub fn raise_approval(&mut self, request: ApprovalRequest, now: u64) -> String {
+        self.expire_approvals(now);
+        self.next_approval = self.next_approval.saturating_add(1);
+        // Scoped to the client and counter: an id only has to be unique within this
+        // session, and it is never a capability — resolving one requires a human-driven
+        // client, so guessing an id buys nothing.
+        let id = format!("ap-{}-{}", now, self.next_approval);
+        if let Some(state) = self.clients.get_mut(&request.client_id) {
+            state.reveal_in_flight = true;
+        } else {
+            self.clients
+                .entry(request.client_id.clone())
+                .or_default()
+                .reveal_in_flight = true;
+        }
+        self.pending.push(PendingApproval {
+            id: id.clone(),
+            request,
+            raised_at: now,
+        });
+        id
+    }
+
+    /// Escalations awaiting an answer, oldest first.
+    pub fn pending_approvals(&mut self, now: u64) -> &[PendingApproval] {
+        self.expire_approvals(now);
+        &self.pending
+    }
+
+    /// Record the user's answer to an escalation.
+    ///
+    /// Returns whether the identifier matched something pending. A stale id — already
+    /// answered, or timed out — is not an error worth failing a request over; the honest
+    /// answer is "there is nothing here to resolve".
+    pub fn resolve_approval(&mut self, id: &str, approved: bool, now: u64) -> bool {
+        self.expire_approvals(now);
+        let Some(index) = self.pending.iter().position(|p| p.id == id) else {
+            return false;
+        };
+        let pending = self.pending.remove(index);
+        if let Some(state) = self.clients.get_mut(&pending.request.client_id) {
+            state.reveal_in_flight = false;
+        }
+        if !approved {
+            // A refusal counts toward the circuit breaker. Repeatedly asking for things the
+            // user says no to is the pattern the breaker exists to catch.
+            self.record_denial(&pending.request.client_id, now);
+        }
+        self.resolved.push(ResolvedApproval {
+            client_id: pending.request.client_id,
+            operation: pending.request.operation,
+            entry: pending.request.entry,
+            approved,
+            resolved_at: now,
+        });
+        true
+    }
+
+    /// Take a matching answer, if the user has given one.
+    ///
+    /// Matching is by client, operation, **and entry**. Approving "reveal the Chase password
+    /// for claude-code" must not authorise revealing a different entry, which a match on
+    /// client and operation alone would allow.
+    fn take_resolved(&mut self, client_id: &str, operation: &Operation, now: u64) -> Option<bool> {
+        self.expire_approvals(now);
+        let label = operation.label();
+        let entry = operation.entry().copied();
+        let index = self
+            .resolved
+            .iter()
+            .position(|r| r.client_id == client_id && r.operation == label && r.entry == entry)?;
+        Some(self.resolved.remove(index).approved)
+    }
+
+    /// Drop escalations and answers that have timed out.
+    ///
+    /// An unanswered prompt must not sit there indefinitely: the user may have walked away,
+    /// and a dialog that is still live an hour later is one they will approve without
+    /// reading. An unconsumed *answer* expires on the same clock, so a "yes" cannot be
+    /// banked and spent much later.
+    fn expire_approvals(&mut self, now: u64) {
+        let mut freed: Vec<String> = Vec::new();
+        self.pending.retain(|p| {
+            let expired = now.saturating_sub(p.raised_at) > p.request.timeout_secs;
+            if expired {
+                freed.push(p.request.client_id.clone());
+            }
+            !expired
+        });
+        for client_id in freed {
+            // Release the one-reveal-at-a-time interlock. Forgetting this was a deadlock:
+            // an unattended timeout left `reveal_in_flight` set, so the client was told
+            // "another reveal is already awaiting approval" for the rest of the session and
+            // could never ask again. Caught by a test that let a prompt expire and then
+            // tried a second request.
+            //
+            // Deliberately *not* recorded as a denial. Nobody refused — nobody was there.
+            // Counting an absence as a refusal would trip the circuit breaker on a machine
+            // whose owner had simply walked away.
+            if let Some(state) = self.clients.get_mut(&client_id) {
+                state.reveal_in_flight = false;
+            }
+        }
+        self.resolved
+            .retain(|r| now.saturating_sub(r.resolved_at) <= APPROVAL_TIMEOUT);
+    }
+
     /// Convert live grants into the persisted form.
     ///
     /// Only grants the user explicitly chose to remember should be passed here; the rest
@@ -1235,6 +1406,145 @@ mod tests {
             matches!(decision, Decision::Deny { .. }),
             "a grant of every scope must still not reach a health check, got {decision:?}"
         );
+    }
+
+    /// Drive an MCP client to the point where a reveal is escalated.
+    fn escalated() -> (PolicyEngine, Client, Id, String) {
+        let mut engine = PolicyEngine::new();
+        engine.set_mcp_reveal_enabled(true);
+        engine.set_gui_attached(true);
+        let mcp = client(ClientType::Mcp);
+        let entry = [7u8; 16];
+        engine.add_grant(Grant {
+            id: [1u8; 16],
+            client_id: mcp.id.clone(),
+            scopes: [Scope::SecretReveal].into_iter().collect(),
+            filter: EntryFilter::All,
+            expires_at: 10_000,
+            max_reveals: 10,
+            reveals_used: 0,
+            max_uses: 10,
+            uses_used: 0,
+            reason_shown: "test".to_owned(),
+        });
+        let operation = Operation::RevealSecret {
+            entry,
+            reason: "please".to_owned(),
+        };
+        let decision = engine.check(&mcp, &operation, &[], 100);
+        let Decision::Ask(request) = decision else {
+            panic!("expected an escalation, got {decision:?}");
+        };
+        let id = engine.raise_approval(*request, 100);
+        (engine, mcp, entry, id)
+    }
+
+    fn reveal_op(entry: Id) -> Operation {
+        Operation::RevealSecret {
+            entry,
+            reason: "please".to_owned(),
+        }
+    }
+
+    #[test]
+    fn an_escalation_is_listed_for_the_user_with_ground_truth() {
+        let (mut engine, mcp, entry, id) = escalated();
+        let pending = engine.pending_approvals(100);
+        assert_eq!(pending.len(), 1);
+        let item = &pending[0];
+        assert_eq!(item.id, id);
+        assert_eq!(item.request.client_id, mcp.id);
+        assert_eq!(item.request.entry, Some(entry));
+        assert_eq!(item.request.client_type, ClientType::Mcp);
+        // The dialog must not be dismissible the instant it appears.
+        assert!(item.request.arm_delay_ms > 0);
+    }
+
+    #[test]
+    fn approving_lets_exactly_one_retry_through() {
+        // The property that makes this per-request approval rather than a silent grant.
+        let (mut engine, mcp, entry, id) = escalated();
+        assert!(engine.resolve_approval(&id, true, 110));
+
+        assert_eq!(
+            engine.check(&mcp, &reveal_op(entry), &[], 111),
+            Decision::Allow,
+            "the retry the user approved should go through"
+        );
+
+        // A second attempt must be escalated again, not waved through.
+        let again = engine.check(&mcp, &reveal_op(entry), &[], 112);
+        assert!(
+            matches!(again, Decision::Ask(_)),
+            "one approval must authorise one reveal, got {again:?}"
+        );
+    }
+
+    #[test]
+    fn refusing_denies_the_retry_and_counts_against_the_client() {
+        let (mut engine, mcp, entry, id) = escalated();
+        assert!(engine.resolve_approval(&id, false, 110));
+        let decision = engine.check(&mcp, &reveal_op(entry), &[], 111);
+        assert!(
+            matches!(decision, Decision::Deny { .. }),
+            "a refused request must not succeed, got {decision:?}"
+        );
+    }
+
+    #[test]
+    fn an_approval_does_not_authorise_a_different_entry() {
+        // Approving "reveal the Chase password" must not reveal the bank one. A match on
+        // client and operation alone would allow exactly that.
+        let (mut engine, mcp, _entry, id) = escalated();
+        assert!(engine.resolve_approval(&id, true, 110));
+        let other = [9u8; 16];
+        let decision = engine.check(&mcp, &reveal_op(other), &[], 111);
+        assert!(
+            !matches!(decision, Decision::Allow),
+            "an approval for one entry must not cover another, got {decision:?}"
+        );
+    }
+
+    #[test]
+    fn an_unanswered_escalation_times_out_and_is_not_counted_as_a_refusal() {
+        // Nobody refused — nobody was there. Counting an absence as a refusal would trip
+        // the circuit breaker on an unattended machine.
+        let (mut engine, mcp, entry, id) = escalated();
+        let timeout = engine.pending_approvals(100)[0].request.timeout_secs;
+        let later = 100 + timeout + 1;
+        assert!(
+            engine.pending_approvals(later).is_empty(),
+            "the prompt should have expired"
+        );
+        assert!(
+            !engine.resolve_approval(&id, true, later),
+            "answering an expired prompt should not resurrect it"
+        );
+        // The client is not on the breaker's list, so it can still be asked about.
+        let decision = engine.check(&mcp, &reveal_op(entry), &[], later);
+        assert!(
+            matches!(decision, Decision::Ask(_)),
+            "a timed-out prompt should leave the client able to ask again, got {decision:?}"
+        );
+    }
+
+    #[test]
+    fn an_unconsumed_approval_cannot_be_banked_indefinitely() {
+        // A "yes" the client never came back for must not stay spendable forever.
+        let (mut engine, mcp, entry, id) = escalated();
+        assert!(engine.resolve_approval(&id, true, 110));
+        let much_later = 110 + APPROVAL_TIMEOUT + 1;
+        let decision = engine.check(&mcp, &reveal_op(entry), &[], much_later);
+        assert!(
+            !matches!(decision, Decision::Allow),
+            "a stale approval must not still be spendable, got {decision:?}"
+        );
+    }
+
+    #[test]
+    fn resolving_an_unknown_identifier_reports_that_rather_than_pretending() {
+        let mut engine = PolicyEngine::new();
+        assert!(!engine.resolve_approval("ap-does-not-exist", true, 100));
     }
 
     fn client(client_type: ClientType) -> Client {
@@ -1345,8 +1655,12 @@ mod tests {
     }
 
     #[test]
-    fn a_reveal_fails_closed_when_no_gui_can_ask() {
-        // Auto-approving because nobody is reachable would invert the point entirely.
+    fn a_reveal_is_never_auto_approved_when_nobody_is_watching() {
+        // The property that matters, stated without reference to how it is achieved:
+        // with no window open and nobody having answered anything, a reveal must not
+        // succeed. It may be *asked* — the command line can answer escalations, so refusing
+        // to raise one on a headless machine told the user to open a window that does not
+        // exist there — but it must never come back `Allow`.
         let mut e = PolicyEngine::new();
         e.set_mcp_reveal_enabled(true);
         e.set_gui_attached(false);
@@ -1354,14 +1668,45 @@ mod tests {
         e.add_grant(grant(&c, &[Scope::SecretReveal]));
 
         let decision = e.check(&c, &reveal(ENTRY), &[], NOW);
-        assert!(decision.is_denied());
-        if let Decision::Deny { reason, counted } = decision {
-            assert!(reason.contains("open Keel"));
-            assert!(
-                !counted,
-                "an unavoidable condition must not trip the breaker"
-            );
-        }
+        assert!(
+            !matches!(decision, Decision::Allow),
+            "a reveal must never be allowed without an answer, got {decision:?}"
+        );
+        assert!(
+            matches!(decision, Decision::Ask(_)),
+            "it should be raised for a human to answer, got {decision:?}"
+        );
+    }
+
+    #[test]
+    fn an_unanswered_reveal_fails_closed_rather_than_lingering() {
+        // Failing closed is preserved by the timeout rather than by refusing to ask. If
+        // nobody ever answers, the escalation expires and the secret is never produced.
+        let mut e = PolicyEngine::new();
+        e.set_mcp_reveal_enabled(true);
+        let c = client(ClientType::Mcp);
+        e.add_grant(grant(&c, &[Scope::SecretReveal]));
+
+        let Decision::Ask(request) = e.check(&c, &reveal(ENTRY), &[], NOW) else {
+            panic!("expected an escalation");
+        };
+        let timeout = request.timeout_secs;
+        e.raise_approval(*request, NOW);
+        assert_eq!(e.pending_approvals(NOW).len(), 1);
+
+        // Nobody answers.
+        let later = NOW + timeout + 1;
+        assert!(
+            e.pending_approvals(later).is_empty(),
+            "an unanswered escalation must expire"
+        );
+        // And the secret is still not obtainable: the retry is a fresh escalation, not an
+        // allow.
+        let decision = e.check(&c, &reveal(ENTRY), &[], later);
+        assert!(
+            !matches!(decision, Decision::Allow),
+            "expiry must not become approval, got {decision:?}"
+        );
     }
 
     #[test]
@@ -1467,7 +1812,7 @@ mod tests {
         for i in 0..u8::try_from(MAX_REVEALS_PER_HOUR).unwrap_or(5) {
             let entry = [i; 16];
             assert!(
-                matches!(e.check(&c, &reveal(entry), &[], NOW), Decision::Ask(_)),
+                matches!(e.check(&c, &reveal_op(entry), &[], NOW), Decision::Ask(_)),
                 "reveal {i} should have been escalated to the user"
             );
             e.begin_reveal_approval(&c.id);
