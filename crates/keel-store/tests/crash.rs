@@ -20,13 +20,20 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use std::fs;
+#[cfg(unix)]
 use std::path::Path;
+// Only the randomised kill test uses these, and it is `cfg(unix)` — see the note on
+// `killing_a_writer_mid_save_never_corrupts_the_vault`. Ungated, they are dead code on
+// Windows, and this workspace denies warnings.
+#[cfg(unix)]
 use std::process::Command;
+#[cfg(unix)]
 use std::time::Duration;
 
 use keel_store::{read_vault, write_vault, VaultPaths, WriteMode};
 
 /// Environment variable that turns this binary into the crash-test child.
+#[cfg(unix)]
 const CHILD_ENV: &str = "KEEL_CRASH_TEST_DIR";
 
 /// Recognisable payloads. Every valid save is one of these, so a torn write shows up
@@ -138,6 +145,7 @@ fn every_backup_is_a_complete_previous_generation() {
 // ---------------------------------------------------------------------------
 
 /// Write generations in a tight loop until killed. Never returns normally.
+#[cfg(unix)]
 fn child_write_loop(dir: &Path) -> ! {
     let paths = VaultPaths::new(dir.join("vault.keel")).unwrap();
     let mut fingerprint = None;
