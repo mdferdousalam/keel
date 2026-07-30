@@ -125,6 +125,8 @@ pub struct AgentState {
     /// Whether a GUI is attached and able to show approval dialogs.
     gui_sessions: usize,
     hardening: keel_hardening::HardeningReport,
+    /// Clipboard thread, for `use_secret` copies and for clearing on lock.
+    clipboard: crate::clipboard::Clipboard,
 }
 
 impl core::fmt::Debug for AgentState {
@@ -134,6 +136,7 @@ impl core::fmt::Debug for AgentState {
             .field("unlocked", &self.vault.is_some())
             .field("handles", &self.handles.len())
             .field("gui_sessions", &self.gui_sessions)
+            .field("clipboard", &self.clipboard)
             .finish()
     }
 }
@@ -154,6 +157,7 @@ impl AgentState {
             last_lock_reason: None,
             gui_sessions: 0,
             hardening,
+            clipboard: crate::clipboard::Clipboard::start(),
         }
     }
 
@@ -179,6 +183,12 @@ impl AgentState {
     #[must_use]
     pub const fn hardening(&self) -> &keel_hardening::HardeningReport {
         &self.hardening
+    }
+
+    /// The clipboard thread.
+    #[must_use]
+    pub const fn clipboard(&self) -> &crate::clipboard::Clipboard {
+        &self.clipboard
     }
 
     /// Why the vault last locked.
@@ -321,6 +331,11 @@ impl AgentState {
         // A fresh unlock is what clears a tripped breaker, so grants must go too.
         self.policy = PolicyEngine::new();
         self.policy.set_gui_attached(self.gui_sessions > 0);
+        // Locking is the user saying "I am done with this vault". Leaving a password
+        // readable by every process on the machine afterwards would contradict the one
+        // thing locking visibly promises. Only our own value is cleared, so anything the
+        // user copied since survives.
+        self.clipboard.clear_ours();
         self.last_lock_reason = Some(reason);
     }
 

@@ -24,6 +24,8 @@ path = "src/lib.rs"
 # perfectly well by a thread per connection, and dropping tokio removes a very large
 # amount of code from the address space that contains the master key.
 [dependencies]
+arboard = { workspace = true }
+blake3 = { workspace = true }
 keel-core = { path = "../keel-core" }
 keel-crypto = { path = "../keel-crypto" }
 keel-format = { path = "../keel-format" }
@@ -33,6 +35,7 @@ keel-store = { path = "../keel-store" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+zeroize = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

@@ -19,6 +19,7 @@
 //! | [`transport`] | The socket, framing, and peer-credential checks |
 //! | [`state`] | Shared state: vault, policy, audit, handle table |
 //! | [`server`] | Accept loop and request dispatch |
+//! | [`clipboard`] | Copying a secret out, and taking it back off again |
 
 // A daemon reports operational events on stderr, where the service manager collects them.
 // Nothing here prints vault data: the audit log is the record of what happened, and it is
@@ -36,6 +37,7 @@
     )
 )]
 
+pub mod clipboard;
 pub mod server;
 pub mod state;
 pub mod transport;

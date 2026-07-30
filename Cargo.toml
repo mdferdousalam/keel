@@ -65,6 +65,9 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 # --- platform ---
+# Clipboard. Only the agent gets this: a secret on the clipboard is placed there by the
+# process that already holds it decrypted, so no other process needs the capability.
+arboard = { version = "3", default-features = false }
 libc = "0.2"
 rustix = { version = "1", features = ["mm", "process", "fs"] }
 windows-sys = "0.60"

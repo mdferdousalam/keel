@@ -27,6 +27,7 @@ use keel_proto::{
 };
 use keel_store::VaultPaths;
 
+use crate::clipboard;
 use crate::state::{client_type_of, count_bucket, AgentState, Failure, Result, SECRET_TTL};
 use crate::transport::{Connection, Listener, PeerIdentity};
 
@@ -512,7 +513,7 @@ impl Session {
             .reveal(&id)
             .map_err(|e| Failure::from_core(&e))?;
         let value = field_value(&body, field)?;
-        let description = apply_secret(&destination, &value)?;
+        let description = apply_secret(&destination, &value, state.clipboard())?;
         drop(body);
 
         state.audit(client, "use_secret", Some(id), Outcome::Allowed, None);
@@ -895,7 +896,23 @@ impl Session {
     /// Turn a requested action into a concrete, validated destination.
     fn resolve_destination(&self, action: &SecretAction) -> Result<Destination> {
         match action {
-            SecretAction::Clipboard => Ok(Destination::Clipboard { clear_after: 15 }),
+            SecretAction::Clipboard => {
+                // The delay is the user's setting, clamped to the range the clipboard
+                // thread will honour, so the number shown in the approval dialog is the
+                // number that will actually be used. A dialog promising a 600-second
+                // clear that silently becomes 120 would be a lie in the one place the
+                // user is being asked to trust us.
+                let configured = self
+                    .lock_state()?
+                    .vault()
+                    .map_or(DEFAULT_CLIPBOARD_CLEAR_SECS, |v| {
+                        v.settings().clipboard_clear_secs
+                    });
+                Ok(Destination::Clipboard {
+                    clear_after: configured
+                        .clamp(clipboard::MIN_CLEAR_SECS, clipboard::MAX_CLEAR_SECS),
+                })
+            }
             SecretAction::TypeIntoFocusedWindow => Ok(Destination::TypeIntoWindow {
                 // The real window title needs platform code; until then the destination is
                 // reported honestly as unknown rather than guessed, because a wrong
@@ -1018,6 +1035,12 @@ fn materialise_secret(source: &SecretSource, state: &AgentState) -> Result<(Stri
     }
 }
 
+/// Clipboard clear delay used when no vault is open to read the setting from.
+///
+/// Matches `VaultSettings::default`, so a copy made before the vault's own setting is
+/// readable behaves the same as one made after.
+const DEFAULT_CLIPBOARD_CLEAR_SECS: u32 = 15;
+
 /// Generate a password or passphrase, returning it with its entropy.
 fn generate(
     length: Option<u32>,
@@ -1047,20 +1070,33 @@ fn generate(
 }
 
 /// Apply a secret to its destination, returning what to tell the user.
-fn apply_secret(destination: &Destination, _value: &str) -> Result<String> {
+///
+/// The returned string is what the user is told happened, so it must never describe an
+/// action that did not occur. Anything that cannot be carried out returns `Err`: a user
+/// who believes a password was copied, and then pastes stale clipboard contents into a
+/// login form, has been actively misled.
+fn apply_secret(
+    destination: &Destination,
+    value: &str,
+    clipboard: &clipboard::Clipboard,
+) -> Result<String> {
     match destination {
-        Destination::Clipboard { .. } | Destination::TypeIntoWindow { .. } => {
-            // Clipboard and synthetic typing need platform integration, which belongs with
-            // the desktop app in Phase 4. Refusing clearly is better than pretending to
-            // have applied a secret that went nowhere — a user who believes a password was
-            // copied and pastes stale clipboard contents into a login form has been
-            // actively misled.
+        Destination::Clipboard { clear_after } => {
+            clipboard
+                .set_secret(value, *clear_after)
+                .map_err(|e| Failure::new(ErrorCode::Internal, e))?;
+            Ok(destination.describe())
+        }
+        Destination::TypeIntoWindow { .. } => {
+            // Synthetic typing needs to know which window has focus, and to be able to
+            // check it is the one the user was shown before approving. Without that
+            // check, typing is strictly worse than the clipboard: it delivers the secret
+            // to whatever grabbed focus in the meantime, with no trace. Refusing and
+            // pointing at the working alternative is the honest option.
             Err(Failure::new(
                 ErrorCode::Internal,
-                format!(
-                    "applying a secret ({}) needs the desktop app, which is not connected",
-                    destination.describe()
-                ),
+                "typing a secret needs the desktop app, which is not connected. \
+                 Copy to the clipboard instead.",
             ))
         }
         Destination::FillInBrowser { .. } => Err(Failure::new(
@@ -1111,8 +1147,16 @@ mod tests {
 
     #[test]
     fn generating_a_passphrase_uses_words() {
+        // Word count is checked by separator count, not by splitting: four words in the
+        // EFF list contain a hyphen, which is also the separator, so `split('-').count()`
+        // over-counts about 0.4% of seven-word phrases. That exact assertion elsewhere in
+        // the workspace produced a flake that took a while to pin down.
         let (value, bits) = generate(None, Some(7), None).unwrap();
-        assert_eq!(value.split('-').count(), 7);
+        assert!(
+            value.matches('-').count() >= 6,
+            "seven words need at least six separators: {value}"
+        );
+        assert!(!value.is_empty());
         assert!(bits > 90.0, "7 words should exceed 90 bits, got {bits}");
     }
 
@@ -1135,12 +1179,39 @@ mod tests {
     #[test]
     fn applying_a_secret_refuses_rather_than_pretending() {
         // A user who is told a password was copied, and then pastes stale clipboard
-        // contents into a login form, has been actively misled. Failing loudly is the only
-        // acceptable behaviour until the platform integration exists.
-        let result = apply_secret(&Destination::Clipboard { clear_after: 15 }, "secret");
-        let failure = result.unwrap_err();
-        assert_eq!(failure.code, ErrorCode::Internal);
-        assert!(failure.message.contains("not connected"));
+        // contents into a login form, has been actively misled. Destinations that cannot
+        // be carried out must fail loudly rather than return a cheerful description.
+        let clipboard = clipboard::Clipboard::start();
+        for destination in [
+            Destination::TypeIntoWindow {
+                window: "some window".to_owned(),
+            },
+            Destination::FillInBrowser {
+                origin: "https://example.com".to_owned(),
+                browser: "Chrome".to_owned(),
+            },
+        ] {
+            let failure = apply_secret(&destination, "secret", &clipboard).unwrap_err();
+            assert_eq!(failure.code, ErrorCode::Internal);
+            assert!(
+                failure.message.contains("not connected"),
+                "should say what is missing: {}",
+                failure.message
+            );
+        }
+    }
+
+    #[test]
+    fn a_clipboard_destination_describes_where_the_secret_went() {
+        // What the user is told must name the destination and the clear delay, because
+        // that description is what they read in the approval dialog. Whether the copy
+        // itself works is the clipboard module's business, and is tested there against an
+        // in-memory backend rather than by hijacking the developer's clipboard.
+        let description = Destination::Clipboard { clear_after: 30 }.describe();
+        assert!(
+            description.contains("clipboard") && description.contains("30"),
+            "should name the destination and the delay: {description}"
+        );
     }
 
     #[test]
