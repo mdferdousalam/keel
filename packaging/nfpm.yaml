@@ -34,6 +34,13 @@ contents:
     dst: /usr/bin/keel-mcp
   - src: ./target/release/keel-native-host
     dst: /usr/bin/keel-native-host
+
+  # keel-reveal is deliberately absent. It links a window toolkit, so it cannot come from the
+  # static musl build the release produces, and on Linux it has no way to hide itself from
+  # screen capture anyway — X11 offers no mechanism and Wayland exposes none to a client.
+  # `keel show` therefore reports that the overlay is unavailable rather than opening a window
+  # that looks protected and is not. It ships with the desktop package, where a dynamically
+  # linked build is already required.
   - src: ./LICENSE
     dst: /usr/share/doc/keel/LICENSE
   - src: ./README.md

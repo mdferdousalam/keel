@@ -43,6 +43,9 @@ build() {
 
 package() {
   cd "$pkgname-$pkgver"
+  # keel-reveal is not here: it links a window toolkit and belongs with the desktop package.
+  # See packaging/nfpm.yaml for why, including the part about Linux having no way to keep such
+  # a window out of a screen recording.
   for binary in keel keel-agent keel-mcp keel-native-host; do
     install -Dm0755 "target/release/$binary" "$pkgdir/usr/bin/$binary"
   done

@@ -34,6 +34,22 @@ jobs:
           toolchain: 1.93.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # The desktop app is a workspace member, so `cargo build --workspace` on Linux needs
+      # the GTK and WebKit development headers. Nothing else in the tree needs them — the
+      # vault core, the agent, and the CLI are all free of system dependencies — but a
+      # workspace build does not get to pick and choose. Keeping the app a member is
+      # deliberate: it is what lets `cargo xtask check-layering` verify that the GUI cannot
+      # reach the cryptographic core.
+      - name: Install GTK and WebKit (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libglib2.0-dev
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -54,6 +70,22 @@ jobs:
         with:
           toolchain: 1.93.1
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # The desktop app is a workspace member, so `cargo build --workspace` on Linux needs
+      # the GTK and WebKit development headers. Nothing else in the tree needs them — the
+      # vault core, the agent, and the CLI are all free of system dependencies — but a
+      # workspace build does not get to pick and choose. Keeping the app a member is
+      # deliberate: it is what lets `cargo xtask check-layering` verify that the GUI cannot
+      # reach the cryptographic core.
+      - name: Install GTK and WebKit (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libglib2.0-dev
       - name: Build
         run: cargo build --workspace --locked
       - name: Test
@@ -72,6 +104,22 @@ jobs:
       #   - clients cannot link the cryptographic core
       #   - no HTTP/TLS stack is reachable from the vault core
       # A claim enforced only by discipline is not enforced.
+      # The desktop app is a workspace member, so `cargo build --workspace` on Linux needs
+      # the GTK and WebKit development headers. Nothing else in the tree needs them — the
+      # vault core, the agent, and the CLI are all free of system dependencies — but a
+      # workspace build does not get to pick and choose. Keeping the app a member is
+      # deliberate: it is what lets `cargo xtask check-layering` verify that the GUI cannot
+      # reach the cryptographic core.
+      - name: Install GTK and WebKit (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libglib2.0-dev
       - name: Dependency layering
         run: cargo xtask check-layering
       - name: Network isolation
@@ -82,9 +130,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: EmbarkStudios/cargo-deny-action@30f817c6f72275c6d54dc744fbca09ebc958599f # v2.0.16
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          command: check advisories bans licenses sources
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # Installed rather than run through the container action. That action runs cargo-deny
+      # inside a musl image, which reads this repository's `rust-toolchain.toml`, does not have
+      # the pinned toolchain, and fails before checking anything:
+      #
+      #   override toolchain '1.93.1-x86_64-unknown-linux-musl' is not installed
+      #
+      # Running it on the same runner as everything else removes a whole class of
+      # container-versus-repository mismatch.
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+      # `bans licenses sources` are checks about *our* choices: they are deterministic, they
+      # answer only to this repository's deny.toml, and they must never be allowed to fail.
+      - name: Bans, licenses, and sources
+        run: cargo deny check bans licenses sources
+      # Advisories depend on the upstream RustSec database, which can be transiently
+      # unparseable through no fault of this repository — it was, on the first run here, with a
+      # malformed RUSTSEC-2026-0109.md. Kept as its own step so an upstream problem is visible
+      # and attributable rather than hidden, and so it cannot mask a real finding in the checks
+      # above. `audit.yml` also runs cargo-audit daily, so a genuine advisory has a second path
+      # to being noticed.
+      - name: Advisories
+        run: cargo deny check advisories
 
   # The vault format parser is the only code in the project that reads fully
   # attacker-controlled bytes, so a panic there is a denial-of-service bug rather
@@ -93,6 +164,12 @@ jobs:
   fuzz-smoke:
     name: Fuzz smoke
     runs-on: ubuntu-latest
+    # `rust-toolchain.toml` pins 1.93.1, and a pin in the repository beats a toolchain the
+    # action installed: the job requested nightly, got stable, and cargo-fuzz died with
+    # "the option `Z` is only accepted on the nightly compiler". Setting this in the
+    # environment is what actually overrides the file.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master

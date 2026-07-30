@@ -246,6 +246,13 @@ impl Client {
     ///
     /// First message on every connection: an old client and a new agent would otherwise
     /// misinterpret each other's messages rather than failing with something legible.
+    ///
+    /// Unreachable on platforms without a transport — the only caller is `attach`, which is
+    /// `cfg(unix)` — so the dead-code warning is silenced there rather than everywhere. Keeping
+    /// the crate compiling on Windows is deliberate: it means the portable code is already
+    /// known-good when the named-pipe transport lands, instead of a pile of accumulated
+    /// breakage to clear first.
+    #[cfg_attr(not(unix), allow(dead_code))]
     fn handshake(&mut self, kind: ClientKind, client_id: &str) -> Result<()> {
         let response = self.request(&Request::Hello {
             protocol_version: PROTOCOL_VERSION,

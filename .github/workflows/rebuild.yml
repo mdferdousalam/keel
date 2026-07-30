@@ -81,8 +81,11 @@ jobs:
           export TZ=UTC
           export LC_ALL=C
           export RUSTFLAGS="--remap-path-prefix=$PWD=/build --remap-path-prefix=$HOME/.cargo=/cargo"
+          # The same binary set release.yml builds, or the hashes cannot match and the whole
+          # point of this workflow is lost.
           cargo build --locked --profile release-repro \
-            --target x86_64-unknown-linux-musl -p keel-cli -p keel-agent
+            --target x86_64-unknown-linux-musl \
+            -p keel-cli -p keel-agent -p keel-mcp -p keel-native-host
 
           # Repackage exactly as release.yml does, or the archive hash will differ for reasons
           # that have nothing to do with the binaries.

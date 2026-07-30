@@ -34,18 +34,40 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # `rustsec/audit-check` builds cargo-audit from source inside the action, and that build
+      # failed here. Installing it as a normal dependency puts the failure — if there is one —
+      # in a step whose log is about installing a tool, rather than inside an action where it
+      # reads as "the audit failed".
+      #
+      # `cargo audit` reads Cargo.lock only, so no system libraries and no workspace build.
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: Audit dependencies
+        run: cargo audit --deny warnings
 
   deny:
     name: cargo-deny (all checks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: EmbarkStudios/cargo-deny-action@30f817c6f72275c6d54dc744fbca09ebc958599f # v2.0.16
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          command: check advisories bans licenses sources
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # Not the container action: it runs in a musl image that reads this repository's
+      # `rust-toolchain.toml`, lacks the pinned toolchain, and fails before checking anything.
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+      - name: Bans, licenses, and sources
+        run: cargo deny check bans licenses sources
+      # Separate, because this one depends on the upstream RustSec database being parseable and
+      # that is outside this repository's control. See ci.yml for the same split.
+      - name: Advisories
+        run: cargo deny check advisories
 
   # Unused dependencies are not just clutter here: every crate in the tree is code
   # that can run inside the process holding an unlocked vault, so removing one is a
@@ -60,5 +82,16 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      # See ci.yml: the desktop app is a workspace member, so a workspace-wide command on
+      # Linux needs the GTK and WebKit headers.
+      - name: Install GTK and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libglib2.0-dev
       - run: cargo install cargo-udeps --locked
       - run: cargo +nightly udeps --workspace --all-targets
