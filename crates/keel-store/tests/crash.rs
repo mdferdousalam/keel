@@ -164,6 +164,21 @@ fn child_write_loop(dir: &Path) -> ! {
     }
 }
 
+/// Unix only, and the reason is the harness rather than the property.
+///
+/// The delays this walks through are tuned to how long a spawned test binary takes to reach
+/// its first write. Windows process startup is slow enough that at the short end the child is
+/// still starting when it is killed, so it never writes a vault — and the test's own
+/// self-check then fires with "only 4 of 10 rounds produced a vault; this test proved
+/// nothing". It has both passed and failed on Windows depending on runner load, and a test
+/// that flips is worse than one that is honestly skipped: it teaches people to re-run CI
+/// instead of reading it.
+///
+/// The property still holds on Windows; what does not port is the timing assumption. The
+/// deterministic crash tests above run everywhere and cover the structural half. Making this
+/// one work there means calibrating the delays against Windows startup, which is worth doing
+/// when the platform is actually supported.
+#[cfg(unix)]
 #[test]
 fn killing_a_writer_mid_save_never_corrupts_the_vault() {
     // Child mode: the parent re-invokes this binary with the directory in the

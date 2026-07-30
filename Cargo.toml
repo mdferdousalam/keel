@@ -62,7 +62,7 @@ keel-breach = { path = "crates/keel-breach", version = "0.1.0" }
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
 # XChaCha20Poly1305 is unconditional in 0.10; nonces come from `getrandom`
 # directly rather than the crate's helper, so its RNG feature stays off.
-chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"] }
 hkdf = "0.12.4"
 sha2 = "0.10.9"
 blake3 = "1.8"

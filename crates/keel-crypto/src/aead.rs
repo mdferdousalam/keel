@@ -111,7 +111,7 @@ pub fn seal_with_nonce(
         })?;
     let ciphertext = cipher
         .encrypt(
-            XNonce::from_slice(nonce),
+            &XNonce::from(*nonce),
             Payload {
                 msg: plaintext,
                 aad,
@@ -149,7 +149,7 @@ pub fn open(
         })?;
     let plaintext = cipher
         .decrypt(
-            XNonce::from_slice(nonce),
+            &XNonce::from(*nonce),
             Payload {
                 msg: ciphertext,
                 aad,
