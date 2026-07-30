@@ -96,7 +96,7 @@ tauri-build = { version = "2", default-features = false }
 arboard = { version = "3", default-features = false }
 libc = "0.2"
 rustix = { version = "1", features = ["mm", "process", "fs"] }
-windows-sys = "0.60"
+windows-sys = "0.61"
 
 # --- fs ---
 tempfile = "3"
