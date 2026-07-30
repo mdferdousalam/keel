@@ -15,5 +15,27 @@ workspace = true
 name = "keel-agent"
 path = "src/main.rs"
 
-[dependencies]
+[lib]
+name = "keel_agent"
+path = "src/lib.rs"
 
+# No async runtime. This process holds the unlocked vault, so its dependency list is
+# the one that matters most: a local IPC server serving a handful of clients is served
+# perfectly well by a thread per connection, and dropping tokio removes a very large
+# amount of code from the address space that contains the master key.
+[dependencies]
+keel-core = { path = "../keel-core" }
+keel-crypto = { path = "../keel-crypto" }
+keel-format = { path = "../keel-format" }
+keel-hardening = { path = "../keel-hardening" }
+keel-proto = { path = "../keel-proto" }
+keel-store = { path = "../keel-store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

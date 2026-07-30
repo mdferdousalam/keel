@@ -19,7 +19,17 @@ whether an older Keel can still open your vault.
   keyed-BLAKE3 factor mixing, HKDF-SHA-512 subkey namespace,
   XChaCha20-Poly1305 wrappers, and a generator using rejection sampling over an
   88-character alphabet plus the EFF long wordlist.
-- `docs/threat-model.md` and `docs/architecture.md`.
+- `keel-proto`: IPC wire types and length-prefixed JSON framing. The protocol has no
+  request that dumps every secret, and metadata responses have nowhere to put a
+  password.
+- `keel-agent`: the daemon that holds the unlocked vault. Unix domain socket in a 0700
+  directory with a peer-UID check, thread per connection, opaque session-scoped entry
+  handles, a watchdog that enforces auto-lock on time and retires an idle agent.
+- `keel-client`: connect-or-spawn, with `connect_existing` for callers that must not
+  spawn.
+- `keel-cli`: the `keel` command — init, unlock, lock, status, list, search, add, get,
+  rotate, rm, generate, save — with `--json` on every read.
+- `docs/threat-model.md`, `docs/architecture.md`, and `docs/cli.md`.
 - `SECURITY.md` with disclosure policy and an explicit out-of-scope list.
 
 - `keel-hardening`: the workspace's only `unsafe` crate. Core-dump suppression,

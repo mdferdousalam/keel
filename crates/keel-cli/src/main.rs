@@ -1,7 +1,796 @@
-//! Keel command-line interface.
+//! The `keel` command.
 //!
-//! Implemented in a later phase; see PLAN.md.
+//! # Secret handling rules
+//!
+//! These are not conveniences; each one closes a specific hole:
+//!
+//! * **No secret is ever accepted in `argv`.** There is deliberately no `--password VALUE`
+//!   flag anywhere. Arguments are visible to every process on the machine via `ps`, and
+//!   they land in shell history where they outlive the session. Secrets come from an
+//!   interactive prompt, from stdin, or from a file the user controls.
+//! * **`get` copies rather than prints by default.** A password on a terminal ends up in
+//!   scrollback, in a screen recording, and over the shoulder of whoever is walking past.
+//!   Printing requires `--show`, and piping requires being explicit about the field.
+//! * **Exit codes are stable** and defined in `keel-proto`, so scripts can branch on
+//!   "locked" versus "not found" without parsing prose.
 
-fn main() {
-    // Placeholder entry point. Replaced in the phase that implements this binary.
+// This binary's entire purpose is writing to a terminal. The workspace forbids printing so
+// that *library* code cannot reach one — above all so a secret cannot arrive there by
+// accident — which is a rule about libraries, not about the program that exists to produce
+// output. Every print site here was written deliberately, and `get` requires an explicit
+// `--show` before a secret is ever among them.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
+// Test code may panic to keep failures readable; the lints protect library code.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )
+)]
+
+use std::io::{IsTerminal, Read, Write};
+use std::process::ExitCode;
+
+use clap::{Parser, Subcommand};
+use keel_client::{Client, Error as ClientError};
+use keel_proto::{
+    ClientKind, EntryInput, EntryRef, ErrorCode, Field, Request, Response, SecretAction,
+    SecretSource,
+};
+
+/// Client identifier reported to the agent.
+const CLIENT_ID: &str = "keel-cli";
+
+#[derive(Parser)]
+#[command(
+    name = "keel",
+    version,
+    about = "A local-first password manager",
+    long_about = "Keel keeps your passwords in one encrypted file on this machine.\n\
+                  There is no server, no account, and no telemetry.\n\n\
+                  Passphrases are never accepted as command-line arguments, because \
+                  arguments are visible to every process via `ps` and persist in shell \
+                  history. For automation, point KEEL_PASSPHRASE_FILE at a file with mode \
+                  600, or pipe the passphrase on standard input."
+)]
+struct Cli {
+    /// Emit machine-readable JSON instead of human-readable text.
+    #[arg(long, global = true)]
+    json: bool,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Create a new vault.
+    Init {
+        /// Key-derivation cost: interactive, balanced, or paranoid.
+        #[arg(long, default_value = "balanced")]
+        tier: String,
+    },
+
+    /// Unlock the vault for this session.
+    Unlock {
+        /// Proceed even if the vault looks older than the last version this device saw.
+        ///
+        /// Only pass this if you know you restored a backup. See `keel status`.
+        #[arg(long)]
+        accept_rollback: bool,
+    },
+
+    /// Lock the vault and wipe keys from memory.
+    Lock,
+
+    /// Show lock state and session information.
+    Status,
+
+    /// List entries.
+    List {
+        /// Maximum entries to show.
+        #[arg(long, default_value_t = 25)]
+        limit: u32,
+    },
+
+    /// Search entries by title, username, or origin.
+    Search {
+        /// What to look for. At least two characters.
+        query: String,
+    },
+
+    /// Add an entry.
+    ///
+    /// The password is generated unless --password-stdin is given. There is deliberately no
+    /// flag that takes a password as an argument.
+    Add {
+        /// Entry title.
+        title: String,
+        /// Username or account identifier.
+        #[arg(long, short)]
+        username: Option<String>,
+        /// Site or application origin, repeatable.
+        #[arg(long)]
+        url: Vec<String>,
+        /// Tag, repeatable.
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Read the password from standard input instead of generating one.
+        #[arg(long)]
+        password_stdin: bool,
+        /// Generated password length.
+        #[arg(long, default_value_t = 20)]
+        length: u32,
+        /// Generate a passphrase of this many words instead of a character password.
+        #[arg(long)]
+        words: Option<u32>,
+    },
+
+    /// Retrieve an entry's secret.
+    ///
+    /// Copies to the clipboard by default; printing requires --show.
+    Get {
+        /// Entry title or reference.
+        name: String,
+        /// Which field to retrieve.
+        #[arg(long, value_parser = parse_field, default_value = "password")]
+        field: Field,
+        /// Print the value to standard output.
+        ///
+        /// Off by default: a password on a terminal ends up in scrollback and in screen
+        /// recordings.
+        #[arg(long)]
+        show: bool,
+    },
+
+    /// Replace an entry's password, keeping the old one in history.
+    Rotate {
+        /// Entry title or reference.
+        name: String,
+        /// Generated password length.
+        #[arg(long, default_value_t = 20)]
+        length: u32,
+        /// Generate a passphrase of this many words instead.
+        #[arg(long)]
+        words: Option<u32>,
+    },
+
+    /// Move an entry to the trash. It can be restored until purged.
+    Rm {
+        /// Entry title or reference.
+        name: String,
+        /// Do not ask for confirmation.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Generate a password without storing it.
+    Generate {
+        /// Length in characters.
+        #[arg(long, default_value_t = 20)]
+        length: u32,
+        /// Generate a passphrase of this many words instead.
+        #[arg(long)]
+        words: Option<u32>,
+    },
+
+    /// Save pending changes to disk.
+    Save,
+}
+
+fn parse_field(value: &str) -> Result<Field, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "password" | "pass" => Ok(Field::Password),
+        "username" | "user" => Ok(Field::Username),
+        "totp" | "otp" => Ok(Field::Totp),
+        "notes" | "note" => Ok(Field::Notes),
+        other => Err(format!(
+            "unknown field {other:?}; expected password, username, totp, or notes"
+        )),
+    }
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    match run(&cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            report(&error);
+            ExitCode::from(error.exit_code())
+        }
+    }
+}
+
+/// Print an error, with a hint where one is actionable.
+fn report(error: &ClientError) {
+    eprintln!("keel: {error}");
+    match error.code() {
+        Some(ErrorCode::Locked) => eprintln!("hint: run `keel unlock` first."),
+        Some(ErrorCode::NoVault) => eprintln!("hint: run `keel init` to create a vault."),
+        Some(ErrorCode::Conflict) => {
+            eprintln!("hint: another Keel instance changed the vault. Retry the command.");
+        }
+        _ => {}
+    }
+}
+
+fn run(cli: &Cli) -> Result<(), ClientError> {
+    let mut client = Client::connect(ClientKind::Cli, CLIENT_ID)?;
+    match &cli.command {
+        Command::Init { tier } => init(&mut client, tier, cli.json),
+        Command::Unlock { accept_rollback } => unlock(&mut client, *accept_rollback, cli.json),
+        Command::Lock => {
+            client.request(&Request::Lock)?;
+            emit(cli.json, "Locked.", &serde_json::json!({"locked": true}));
+            Ok(())
+        }
+        Command::Status => status(&mut client, cli.json),
+        Command::List { limit } => list(&mut client, *limit, cli.json),
+        Command::Search { query } => search(&mut client, query, cli.json),
+        Command::Add {
+            title,
+            username,
+            url,
+            tag,
+            password_stdin,
+            length,
+            words,
+        } => add(
+            &mut client,
+            title,
+            username.as_deref(),
+            url,
+            tag,
+            *password_stdin,
+            *length,
+            *words,
+            cli.json,
+        ),
+        Command::Get { name, field, show } => get(&mut client, name, *field, *show, cli.json),
+        Command::Rotate {
+            name,
+            length,
+            words,
+        } => rotate(&mut client, name, *length, *words, cli.json),
+        Command::Rm { name, yes } => remove(&mut client, name, *yes, cli.json),
+        Command::Generate { length, words } => generate(&mut client, *length, *words, cli.json),
+        Command::Save => {
+            client.request(&Request::Save)?;
+            emit(cli.json, "Saved.", &serde_json::json!({"saved": true}));
+            Ok(())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+fn init(client: &mut Client, tier: &str, json: bool) -> Result<(), ClientError> {
+    let passphrase = prompt_new_passphrase()?;
+    client.request(&Request::CreateVault {
+        passphrase,
+        tier: Some(tier.to_owned()),
+    })?;
+    emit(
+        json,
+        "Vault created and unlocked.",
+        &serde_json::json!({"created": true}),
+    );
+    Ok(())
+}
+
+fn unlock(client: &mut Client, accept_rollback: bool, json: bool) -> Result<(), ClientError> {
+    let passphrase = prompt_passphrase("Master passphrase: ")?;
+    client.request(&Request::Unlock {
+        passphrase,
+        keyfile: None,
+        accept_rollback,
+    })?;
+    emit(json, "Unlocked.", &serde_json::json!({"unlocked": true}));
+    Ok(())
+}
+
+fn status(client: &mut Client, json: bool) -> Result<(), ClientError> {
+    let Response::Status(info) = client.request(&Request::Status)? else {
+        return Err(ClientError::Unexpected("expected a status response".into()));
+    };
+    if json {
+        print_json(&serde_json::to_value(&*info).unwrap_or_default());
+        return Ok(());
+    }
+    println!("State:   {:?}", info.state);
+    println!("Vault:   {}", info.vault_path);
+    if let Some(count) = &info.entry_count {
+        println!("Entries: {count}");
+    }
+    if let Some(seconds) = info.locks_in {
+        println!("Locks:   in {seconds}s");
+    }
+    println!("Agent:   {}", info.agent_version);
+    println!(
+        "Hardened: {}",
+        if info.hardened { "yes" } else { "partially" }
+    );
+    for warning in &info.warnings {
+        println!("Warning: {warning}");
+    }
+    Ok(())
+}
+
+fn list(client: &mut Client, limit: u32, json: bool) -> Result<(), ClientError> {
+    let response = client.request(&Request::List {
+        limit: Some(limit),
+        offset: None,
+    })?;
+    print_entries(&response, json)
+}
+
+fn search(client: &mut Client, query: &str, json: bool) -> Result<(), ClientError> {
+    let response = client.request(&Request::Search {
+        query: query.to_owned(),
+        limit: None,
+    })?;
+    print_entries(&response, json)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add(
+    client: &mut Client,
+    title: &str,
+    username: Option<&str>,
+    urls: &[String],
+    tags: &[String],
+    password_stdin: bool,
+    length: u32,
+    words: Option<u32>,
+    json: bool,
+) -> Result<(), ClientError> {
+    let secret = if password_stdin {
+        SecretSource::Provided {
+            value: read_stdin_secret()?,
+        }
+    } else {
+        SecretSource::Generate {
+            length: Some(length),
+            words,
+        }
+    };
+
+    let response = client.request(&Request::CreateEntry {
+        input: EntryInput {
+            title: title.to_owned(),
+            username: username.unwrap_or_default().to_owned(),
+            origins: urls.to_vec(),
+            tags: tags.to_vec(),
+            notes: String::new(),
+        },
+        secret,
+    })?;
+    client.request(&Request::Save)?;
+
+    let Response::Created {
+        reference,
+        entropy_bits,
+    } = response
+    else {
+        return Err(ClientError::Unexpected(
+            "expected a created response".into(),
+        ));
+    };
+    if json {
+        print_json(&serde_json::json!({
+            "reference": reference.0,
+            "entropy_bits": entropy_bits,
+        }));
+    } else {
+        // Report the strength but never the value: a generated password the caller never
+        // saw is the point of the Generate path.
+        match entropy_bits {
+            Some(bits) => println!("Added {title} ({bits:.0} bits of entropy)."),
+            None => println!("Added {title}."),
+        }
+    }
+    Ok(())
+}
+
+fn get(
+    client: &mut Client,
+    name: &str,
+    field: Field,
+    show: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    let reference = resolve(client, name)?;
+
+    // Printing is opt-in when a human is watching. When output is piped the caller has
+    // asked for the value on purpose, but they still have to say --show, so a stray `keel
+    // get x > file` cannot silently write a password.
+    if !show {
+        let response = client.request(&Request::UseSecret {
+            reference,
+            field,
+            action: SecretAction::Clipboard,
+        })?;
+        let Response::Applied { description } = response else {
+            return Err(ClientError::Unexpected(
+                "expected an applied response".into(),
+            ));
+        };
+        emit(
+            json,
+            &description,
+            &serde_json::json!({"applied": description}),
+        );
+        return Ok(());
+    }
+
+    if std::io::stdout().is_terminal() {
+        eprintln!("keel: printing a secret to a terminal; it will remain in scrollback.");
+    }
+    let response = client.request(&Request::Reveal {
+        reference,
+        field,
+        reason: Some("requested at the command line".to_owned()),
+    })?;
+    let Response::Secret { value, .. } = response else {
+        return Err(ClientError::Unexpected("expected a secret response".into()));
+    };
+    if json {
+        print_json(&serde_json::json!({"value": value}));
+    } else {
+        // No trailing newline handling beyond the usual: scripts expect one line.
+        println!("{value}");
+    }
+    Ok(())
+}
+
+fn rotate(
+    client: &mut Client,
+    name: &str,
+    length: u32,
+    words: Option<u32>,
+    json: bool,
+) -> Result<(), ClientError> {
+    let reference = resolve(client, name)?;
+    let response = client.request(&Request::RotateSecret {
+        reference,
+        secret: SecretSource::Generate {
+            length: Some(length),
+            words,
+        },
+    })?;
+    client.request(&Request::Save)?;
+    let Response::Created { entropy_bits, .. } = response else {
+        return Err(ClientError::Unexpected(
+            "expected a created response".into(),
+        ));
+    };
+    if json {
+        print_json(&serde_json::json!({"rotated": true, "entropy_bits": entropy_bits}));
+    } else {
+        println!("Rotated. The previous password is kept in history.");
+    }
+    Ok(())
+}
+
+fn remove(client: &mut Client, name: &str, yes: bool, json: bool) -> Result<(), ClientError> {
+    if !yes && std::io::stdin().is_terminal() {
+        eprint!("Move {name} to the trash? [y/N] ");
+        let _ = std::io::stderr().flush();
+        let mut answer = String::new();
+        if std::io::stdin().read_line(&mut answer).is_err()
+            || !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+        {
+            eprintln!("Cancelled.");
+            return Ok(());
+        }
+    }
+    let reference = resolve(client, name)?;
+    client.request(&Request::TrashEntry { reference })?;
+    client.request(&Request::Save)?;
+    emit(
+        json,
+        "Moved to the trash. It can be restored until purged.",
+        &serde_json::json!({"trashed": true}),
+    );
+    Ok(())
+}
+
+fn generate(
+    client: &mut Client,
+    length: u32,
+    words: Option<u32>,
+    json: bool,
+) -> Result<(), ClientError> {
+    let response = client.request(&Request::GeneratePassword {
+        length: Some(length),
+        words,
+    })?;
+    let Response::Generated {
+        value,
+        entropy_bits,
+    } = response
+    else {
+        return Err(ClientError::Unexpected(
+            "expected a generated response".into(),
+        ));
+    };
+    if json {
+        print_json(&serde_json::json!({"value": value, "entropy_bits": entropy_bits}));
+    } else {
+        println!("{value}");
+        eprintln!("({entropy_bits:.0} bits of entropy)");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Find an entry by name, or accept a reference directly.
+fn resolve(client: &mut Client, name: &str) -> Result<EntryRef, ClientError> {
+    let response = client.request(&Request::Search {
+        query: name.to_owned(),
+        limit: Some(10),
+    })?;
+    let Response::Entries { entries, .. } = response else {
+        return Err(ClientError::Unexpected(
+            "expected an entries response".into(),
+        ));
+    };
+
+    match entries.len() {
+        0 => Err(ClientError::Agent {
+            code: ErrorCode::NotFound,
+            message: format!("no entry matching {name:?}"),
+        }),
+        1 => Ok(entries
+            .into_iter()
+            .next()
+            .map(|e| e.reference)
+            .unwrap_or(EntryRef(String::new()))),
+        _ => {
+            // Refuse rather than guessing. Acting on the wrong entry could rotate a
+            // password the user did not mean to touch.
+            let exact: Vec<_> = entries
+                .iter()
+                .filter(|e| e.title.eq_ignore_ascii_case(name))
+                .collect();
+            if let [only] = exact.as_slice() {
+                return Ok(only.reference.clone());
+            }
+            let titles: Vec<&str> = entries.iter().map(|e| e.title.as_str()).collect();
+            Err(ClientError::Agent {
+                code: ErrorCode::BadRequest,
+                message: format!(
+                    "{name:?} matches {} entries ({}); be more specific",
+                    entries.len(),
+                    titles.join(", ")
+                ),
+            })
+        }
+    }
+}
+
+fn print_entries(response: &Response, json: bool) -> Result<(), ClientError> {
+    let Response::Entries { entries, truncated } = response else {
+        return Err(ClientError::Unexpected(
+            "expected an entries response".into(),
+        ));
+    };
+    if json {
+        print_json(&serde_json::json!({
+            "entries": entries,
+            "truncated": truncated,
+        }));
+        return Ok(());
+    }
+    if entries.is_empty() {
+        println!("No entries.");
+        return Ok(());
+    }
+    let width = entries.iter().map(|e| e.title.len()).max().unwrap_or(0);
+    for entry in entries {
+        let totp = if entry.has_totp { " [totp]" } else { "" };
+        println!(
+            "{:width$}  {}{}",
+            entry.title,
+            entry.username,
+            totp,
+            width = width
+        );
+    }
+    if *truncated {
+        println!("(more entries; raise --limit to see them)");
+    }
+    Ok(())
+}
+
+/// Environment variable naming a file that holds the master passphrase.
+///
+/// The supported way to run Keel non-interactively. A file is used rather than an
+/// environment variable holding the passphrase itself, because environment variables are
+/// readable through `/proc/<pid>/environ` by anything running as the same user, are
+/// inherited by every child process, and end up verbatim in CI logs. A file at least has
+/// permissions.
+const PASSPHRASE_FILE_ENV: &str = "KEEL_PASSPHRASE_FILE";
+
+/// Where a passphrase should come from.
+enum PassphraseSource {
+    /// A file named by [`PASSPHRASE_FILE_ENV`].
+    File(std::path::PathBuf),
+    /// Standard input, because it is not a terminal.
+    Stdin,
+    /// An interactive prompt.
+    Terminal,
+}
+
+/// Decide where to read the passphrase from.
+///
+/// Precedence is explicit-file, then piped stdin, then an interactive prompt. Falling back
+/// to stdin when it is not a terminal is what makes `keel` usable in a script without
+/// tempting anyone to add a `--passphrase` flag.
+fn passphrase_source() -> PassphraseSource {
+    if let Ok(path) = std::env::var(PASSPHRASE_FILE_ENV) {
+        if !path.is_empty() {
+            return PassphraseSource::File(std::path::PathBuf::from(path));
+        }
+    }
+    if std::io::stdin().is_terminal() {
+        PassphraseSource::Terminal
+    } else {
+        PassphraseSource::Stdin
+    }
+}
+
+/// Read a passphrase from a file, refusing one others can read.
+fn read_passphrase_file(path: &std::path::Path) -> Result<String, ClientError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(path).map_err(|e| ClientError::Io {
+            context: "reading the passphrase file",
+            source: e,
+        })?;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            // Refuse rather than warn. A passphrase file the whole machine can read defeats
+            // the entire vault, and a warning in a script's output is a warning nobody sees.
+            return Err(ClientError::Agent {
+                code: ErrorCode::BadRequest,
+                message: format!(
+                    "{} is readable by other users (mode {mode:o}); run `chmod 600` on it \
+                     before using it",
+                    path.display()
+                ),
+            });
+        }
+    }
+    let contents = std::fs::read_to_string(path).map_err(|e| ClientError::Io {
+        context: "reading the passphrase file",
+        source: e,
+    })?;
+    let trimmed = contents.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        return Err(ClientError::Agent {
+            code: ErrorCode::BadRequest,
+            message: format!("{} is empty", path.display()),
+        });
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// Read one line from standard input.
+fn read_passphrase_line() -> Result<String, ClientError> {
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| ClientError::Io {
+            context: "reading the passphrase from standard input",
+            source: e,
+        })?;
+    let trimmed = line.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        return Err(ClientError::Agent {
+            code: ErrorCode::BadRequest,
+            message: "no passphrase was provided on standard input".to_owned(),
+        });
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// Read an existing passphrase from wherever is appropriate.
+fn prompt_passphrase(prompt: &str) -> Result<String, ClientError> {
+    match passphrase_source() {
+        PassphraseSource::File(path) => read_passphrase_file(&path),
+        PassphraseSource::Stdin => read_passphrase_line(),
+        PassphraseSource::Terminal => {
+            rpassword::prompt_password(prompt).map_err(|e| ClientError::Io {
+                context: "reading the passphrase",
+                source: e,
+            })
+        }
+    }
+}
+
+/// Read a new passphrase, confirming it when a human is present.
+///
+/// Confirmation matters more here than anywhere else in the program: a mistyped passphrase
+/// on an existing vault is an error message, but a mistyped passphrase on a *new* vault
+/// locks the user out of everything they subsequently store, permanently and silently.
+///
+/// It is skipped in non-interactive mode, where a script has supplied a single value and
+/// asking twice would just mean reading the same file or pipe again.
+fn prompt_new_passphrase() -> Result<String, ClientError> {
+    match passphrase_source() {
+        PassphraseSource::File(path) => read_passphrase_file(&path),
+        PassphraseSource::Stdin => read_passphrase_line(),
+        PassphraseSource::Terminal => {
+            let first = rpassword::prompt_password("New master passphrase: ").map_err(|e| {
+                ClientError::Io {
+                    context: "reading the passphrase",
+                    source: e,
+                }
+            })?;
+            let second =
+                rpassword::prompt_password("Confirm master passphrase: ").map_err(|e| {
+                    ClientError::Io {
+                        context: "reading the passphrase",
+                        source: e,
+                    }
+                })?;
+            if first != second {
+                return Err(ClientError::Agent {
+                    code: ErrorCode::BadRequest,
+                    message: "the passphrases did not match; nothing was created".to_owned(),
+                });
+            }
+            Ok(first)
+        }
+    }
+}
+
+/// Read a secret from standard input.
+///
+/// The only way to supply an existing password, because a `--password` flag would put it in
+/// `ps` output and in shell history.
+fn read_stdin_secret() -> Result<String, ClientError> {
+    let mut value = String::new();
+    std::io::stdin()
+        .read_to_string(&mut value)
+        .map_err(|e| ClientError::Io {
+            context: "reading the password from standard input",
+            source: e,
+        })?;
+    // Trim only the trailing newline a shell or `echo` adds; leading and interior
+    // whitespace could legitimately be part of a password.
+    let trimmed = value.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        return Err(ClientError::Agent {
+            code: ErrorCode::BadRequest,
+            message: "no password was provided on standard input".to_owned(),
+        });
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// Print either a human message or a JSON object.
+fn emit(json: bool, human: &str, value: &serde_json::Value) {
+    if json {
+        print_json(value);
+    } else {
+        println!("{human}");
+    }
+}
+
+fn print_json(value: &serde_json::Value) {
+    match serde_json::to_string_pretty(value) {
+        Ok(text) => println!("{text}"),
+        Err(error) => eprintln!("keel: could not render JSON: {error}"),
+    }
 }

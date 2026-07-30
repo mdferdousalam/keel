@@ -11,5 +11,9 @@ authors.workspace = true
 [lints]
 workspace = true
 
+# Deliberately does NOT depend on keel-crypto, keel-format, or keel-core. That absence
+# is enforced by `cargo xtask check-layering` and is what keeps key material out of the
+# CLI, the MCP server, the native messaging host, and the desktop shell.
 [dependencies]
 keel-proto = { path = "../keel-proto" }
+thiserror = { workspace = true }

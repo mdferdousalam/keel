@@ -257,6 +257,108 @@ pub fn page_size() -> usize {
     }
 }
 
+/// This process's effective user id.
+///
+/// Lives here rather than in `keel-agent` because `geteuid` is a raw libc call, and this
+/// crate is the single place in the workspace permitted `unsafe`.
+#[must_use]
+pub fn current_uid() -> u32 {
+    #[cfg(unix)]
+    {
+        // SAFETY: `geteuid` takes no arguments, dereferences nothing, and cannot fail.
+        unsafe { libc::geteuid() }
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
+}
+
+/// Read a connected Unix socket peer's user id and, where available, its process id.
+///
+/// Returns `None` if the platform refuses to tell us. Callers must treat that as a
+/// *foreign* peer rather than assuming it is us: failing closed is the only safe default
+/// when the check itself is unavailable.
+///
+/// # What this proves
+///
+/// The uid is authoritative — the kernel supplies it, and it cannot be forged by the peer.
+/// The pid is only a hint: by the time it is resolved to an executable path the process
+/// may have exited and the pid been reused, so the path is evidence for a human reading an
+/// approval dialog, never an authorization decision. `docs/threat-model.md` (T13) is
+/// explicit about this.
+#[cfg(unix)]
+#[must_use]
+pub fn peer_credentials(stream: &std::os::unix::net::UnixStream) -> Option<(u32, Option<u32>)> {
+    use std::os::fd::AsRawFd;
+    let fd = stream.as_raw_fd();
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = core::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: `cred` is a fully-initialised struct of exactly the type SO_PEERCRED
+        // writes, and `len` describes its real size. The kernel writes at most `len`
+        // bytes and updates `len` to what it wrote.
+        let rc = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                core::ptr::addr_of_mut!(cred).cast(),
+                &mut len,
+            )
+        };
+        if rc != 0 {
+            return None;
+        }
+        let pid = u32::try_from(cred.pid).ok();
+        Some((cred.uid, pid))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut uid: libc::uid_t = 0;
+        let mut gid: libc::gid_t = 0;
+        // SAFETY: both out-parameters are live, correctly typed, and initialised.
+        let rc = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
+        if rc != 0 {
+            return None;
+        }
+
+        // LOCAL_PEERPID is a Darwin extension and is absent from the libc crate.
+        const LOCAL_PEERPID: libc::c_int = 0x002;
+        let mut pid: libc::pid_t = 0;
+        let mut len = core::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+        // SAFETY: as above; `pid` is a live, initialised i32 and `len` is its true size.
+        let pid_rc = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_LOCAL,
+                LOCAL_PEERPID,
+                core::ptr::addr_of_mut!(pid).cast(),
+                &mut len,
+            )
+        };
+        let pid = if pid_rc == 0 {
+            u32::try_from(pid).ok()
+        } else {
+            None
+        };
+        Some((uid, pid))
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = fd;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +388,37 @@ mod tests {
     fn core_dumps_can_be_disabled() {
         // Must not panic or hang, whatever the platform says.
         let _ = disable_core_dumps();
+    }
+
+    #[test]
+    fn current_uid_is_reported() {
+        let uid = current_uid();
+        // Only assert it is stable; the value itself depends on who runs the tests, and
+        // root (uid 0) is a legitimate answer in a container.
+        assert_eq!(uid, current_uid());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn peer_credentials_report_our_own_uid_over_a_local_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("probe.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            peer_credentials(&stream)
+        });
+        let _client = std::os::unix::net::UnixStream::connect(&path).unwrap();
+
+        let (uid, pid) = server
+            .join()
+            .unwrap()
+            .expect("credentials should be readable");
+        assert_eq!(uid, current_uid(), "a local peer must report our own uid");
+        // The pid is a hint and may be absent; if present it must be plausible.
+        if let Some(pid) = pid {
+            assert!(pid > 0);
+        }
     }
 }

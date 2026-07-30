@@ -39,12 +39,17 @@ pub fn allowed_internal_deps(crate_name: &str) -> Option<&'static [&'static str]
         "keel-core" => &["keel-crypto", "keel-format", "keel-store", "keel-hardening"],
 
         // ---- the one privileged process -----------------------------------
+        // The agent is the only process that opens the vault file, so it is the only one
+        // that needs the storage layer as well as the cryptographic core. Concentrating
+        // both here is the point: it keeps "which code can touch key material or vault
+        // bytes?" a question with a one-binary answer.
         "keel-agent" => &[
             "keel-core",
             "keel-crypto",
             "keel-format",
             "keel-hardening",
             "keel-proto",
+            "keel-store",
         ],
 
         // ---- clients: no crypto, no vault format --------------------------
@@ -148,6 +153,24 @@ mod tests {
             allowed_internal_deps("keel-client"),
             Some(&["keel-proto"][..])
         );
+    }
+
+    #[test]
+    fn only_the_agent_may_touch_vault_storage() {
+        // Clients speak the wire protocol; they never open the vault file.
+        for client in [
+            "keel-client",
+            "keel-cli",
+            "keel-mcp",
+            "keel-native-host",
+            "keel-reveal",
+        ] {
+            let allowed = allowed_internal_deps(client).expect("client crate must have rules");
+            assert!(
+                !allowed.contains(&"keel-store"),
+                "{client} must not be allowed to open the vault file"
+            );
+        }
     }
 
     #[test]

@@ -446,6 +446,15 @@ impl UnlockedVault {
             .collect()
     }
 
+    /// Derive the audit-log key for this vault.
+    ///
+    /// Exposed so the agent can write the audit log without ever holding the master key
+    /// itself. The audit log is therefore readable only while the vault is unlocked, which
+    /// is correct: it describes vault activity and belongs to the same secret.
+    pub fn audit_key(&self) -> Result<Key256> {
+        Ok(subkeys::audit_key(&self.vmk, &self.header.vault_uuid)?)
+    }
+
     /// Derive the key for one record.
     fn record_key(&self, id: &Id, epoch: u32) -> Result<Key256> {
         Ok(subkeys::record_key(
