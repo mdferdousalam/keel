@@ -15,10 +15,14 @@
 | 6 — MCP server | **Done** | Both halves verified: the default cannot leak a password, and the opt-in works one request at a time |
 | 7 — Release pipeline | **Mostly done** | Packaging templates written for Homebrew, Scoop, AUR, nfpm (deb/rpm), and a systemd user unit. Signing keys not generated — that is an offline ceremony whose whole value is never having been on a networked machine. |
 
-**Working:** the whole CLI (`init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
-`get`, `rotate`, `rm`, `generate`, `save`, `import`, `export`, `audit`, `log`, `settings`,
-`approvals`, `grant`, `grants`, `revoke`, `verify-release`), the desktop window, and
-`keel-mcp`.
+**Working:** the whole CLI — `init`, `unlock`, `lock`, `status`, `list`, `search`, `add`, `get`,
+`show`, `rotate`, `rm`, `generate`, `save`, `import`, `export`, `audit`, `log`, `settings`,
+`approvals`, `grant`, `grants`, `revoke`, `setup-browser`, `verify-release`, with `--json` and
+`--vault` throughout — plus the desktop window, the MCP server, the browser extension with its
+native bridge, and the reveal overlay.
+
+**594 tests**, clippy clean under `-D warnings`, both architectural gates passing, and a
+full-system smoke test that exercises every command in one session with zero failures.
 
 **Not working, deliberately loud about it:**
 
