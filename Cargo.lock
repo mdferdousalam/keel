@@ -423,10 +423,14 @@ dependencies = [
 name = "keel-core"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "keel-crypto",
  "keel-format",
+ "keel-hardening",
  "keel-store",
+ "tempfile",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

@@ -82,35 +82,65 @@ Encoded in ascending flag-bit order, so encoder and decoder cannot drift:
 | YubiKey | `slot:1 ‖ challenge:64` |
 | FIDO2 | `rp_id_hash:32 ‖ salt:32 ‖ cred_id_len:4 ‖ cred_id` (id ≤ 1024 bytes) |
 
-## The binding hash
+## Two header hashes
+
+The header is authenticated by two different hashes, used for different purposes. The
+split is load-bearing; collapsing them into one breaks the vault.
+
+### `H_bind` — the binding hash
 
 ```
-H = BLAKE3-256(header bytes from offset 0 through wrapped_key_count inclusive)
+H_bind = BLAKE3-256(header bytes from offset 0 through wrapped_key_count inclusive)
 ```
 
 with `header_len` treated as zero when computing it.
 
-`H` covers the format version, flags, vault id, creation time, KDF identifier and cost
+Covers the format version, flags, vault id, creation time, KDF identifier and cost
 parameters, salt, required factors, AEAD identifier, current epoch, and key count — in
-short, every field an attacker would want to weaken. It is mixed into the associated
-data of the wrapped key, the manifest, and every record, so any change to a covered
-field makes decryption fail rather than succeed cheaply.
+short, every field an attacker would want to weaken.
 
 **The attack this prevents.** Without it, someone with write access to your vault file
 rewrites the header to say `m_cost = 8 KiB`, returns the file, and lets your own client
 perform a cheap key derivation they can then brute-force. The parameters are not
 secret — there is nothing to hide — but they must be impossible to change undetected.
+Because `H_bind` feeds the wrapped key's associated data, a rewritten header fails to
+unwrap.
 
 `header_len` is excluded so that adding a field after the binding prefix cannot
 invalidate existing vaults. It is validated separately against the bytes actually
 consumed.
 
+### `H_id` — the identity hash
+
+```
+H_id = BLAKE3-256("keel/v1/identity" ‖ format_version:2 ‖ vault_uuid:16 ‖ aead_id:1)
+```
+
+Covers only the three fields that determine *how to interpret the vault body*: a version
+downgrade cannot reinterpret the bytes, a record cannot be moved between vaults, and the
+cipher cannot be swapped.
+
+**Why the manifest and records use this instead of `H_bind`.** A passphrase change
+rewrites the salt, the cost parameters, and the factor set. If records were bound to all
+of that, changing the passphrase would invalidate every record in the vault — destroying
+the reason the design separates the key-encryption key from the vault master key, and
+turning a sub-second header rewrite into a full re-encryption of every entry.
+
+Nothing is weakened by the narrower hash. An attacker who tampers with the KDF
+parameters cannot unwrap the master key, so they never reach the manifest or a record;
+`A_wrap` is where that attack is stopped.
+
+Header **flags** are deliberately excluded from `H_id` because they are mutable during
+normal use — enrolling a quick-unlock key sets one. If a future flag ever changes how
+record bytes are interpreted (compression, for instance), it must be recorded per record
+or gated behind a format version bump, never left in a mutable header field.
+
 ## Associated data
 
 ```
-A_wrap     = "keel/v1/wrap"     ‖ vault_uuid ‖ H ‖ epoch:4
-A_manifest = "keel/v1/manifest" ‖ vault_uuid ‖ H ‖ write_counter:8 ‖ format_version:2
-A_record   = "keel/v1/record"   ‖ vault_uuid ‖ H ‖ record_id:16 ‖ key_epoch:4
+A_wrap     = "keel/v1/wrap"     ‖ vault_uuid ‖ H_bind ‖ epoch:4
+A_manifest = "keel/v1/manifest" ‖ vault_uuid ‖ H_id   ‖ write_counter:8 ‖ format_version:2
+A_record   = "keel/v1/record"   ‖ vault_uuid ‖ H_id   ‖ record_id:16 ‖ key_epoch:4
 ```
 
 `A_manifest` includes the write counter, so replaying an old manifest under a newer
@@ -163,9 +193,13 @@ The manifest contains **no secrets**. It is nonetheless fully encrypted, because
 metadata identifies accounts: knowing someone holds a login at a particular bank or
 forum can matter as much as the password.
 
+Trashed entries keep their records until purged, so the record index covers live **and**
+trashed entries. Only a purge actually drops a record from the file; that is what makes a
+restore possible.
+
 ### Structural rules
 
-Enforced on load, after authentication:
+Enforced on load, after authentication, across live and trashed entries alike:
 
 - No duplicate record ids.
 - No two entries with overlapping blob extents.

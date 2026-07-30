@@ -492,9 +492,18 @@ impl Manifest {
             trashed.entry.validate()?;
         }
 
+        // Trashed entries keep their records until purged, so they take part in both
+        // checks below: a trashed record still occupies bytes and still needs a unique
+        // id, or restoring it could read another entry's ciphertext.
+        let all_entries = || {
+            self.entries
+                .iter()
+                .chain(self.trash.iter().map(|t| &t.entry))
+        };
+
         // Duplicate record ids would make `entry()` ambiguous and could let one
         // entry's ciphertext be read as another's.
-        let mut ids: Vec<&Id> = self.entries.iter().map(|e| &e.record_id).collect();
+        let mut ids: Vec<&Id> = all_entries().map(|e| &e.record_id).collect();
         ids.sort_unstable();
         let before = ids.len();
         ids.dedup();
@@ -504,9 +513,7 @@ impl Manifest {
 
         // Records must not overlap. Overlapping extents would mean two entries
         // sharing ciphertext, which is either corruption or a crafted file.
-        let mut extents: Vec<(u64, u64)> = self
-            .entries
-            .iter()
+        let mut extents: Vec<(u64, u64)> = all_entries()
             .map(EntryMeta::extent)
             .collect::<Result<_>>()?;
         extents.sort_unstable();

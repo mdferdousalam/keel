@@ -2,22 +2,33 @@
 //!
 //! The header is plaintext — it has to be, since it holds the parameters needed to
 //! derive the key that decrypts everything else. What makes that safe is that the
-//! header is **authenticated**: [`Header::binding_hash`] covers every field that
-//! matters, and that hash is fed into the associated data of the wrapped master
-//! key, the manifest, and every record.
+//! header is **authenticated**: two hashes over its fields are fed into the AEAD
+//! associated data of everything the vault contains.
 //!
-//! # Why that matters: the downgrade attack
+//! # Two hashes, and why one is not enough
 //!
-//! Without this, an attacker who can write to your vault file rewrites the header
-//! to say `m_cost = 8 KiB`, hands it back, and lets *your own client* perform a
-//! cheap key derivation they can then brute-force in seconds. The parameters are
-//! not secret, so there is nothing to hide — but they must be impossible to change
-//! undetected. Because the binding hash covers them and feeds the AEAD associated
-//! data on the wrapped key, a rewritten header simply fails to unwrap.
+//! | Hash | Covers | Used by |
+//! |---|---|---|
+//! | [`Header::binding_hash`] | Everything: version, flags, vault id, KDF identifier, cost parameters, salt, required factors, AEAD identifier, epoch, key count | The wrapped master key |
+//! | [`Header::identity_hash`] | Only format version, vault id, AEAD identifier | The manifest and every record |
 //!
-//! The same mechanism blocks stripping a required factor (the factor flags are in
-//! the hash), swapping the algorithm identifiers, and rolling the format version
-//! backwards.
+//! **The downgrade attack** is what the wide hash prevents. Without it, an attacker
+//! who can write to your vault file rewrites the header to say `m_cost = 8 KiB`,
+//! hands it back, and lets *your own client* perform a cheap key derivation they can
+//! then brute-force in seconds. The parameters are not secret — there is nothing to
+//! hide — but they must be impossible to change undetected. Because `binding_hash`
+//! covers them and feeds the wrapped key's associated data, a rewritten header simply
+//! fails to unwrap. The same mechanism blocks stripping a required factor and swapping
+//! the algorithm identifiers.
+//!
+//! **The narrow hash exists because the wide one is too wide for records.** A
+//! passphrase change rewrites the salt, the cost parameters, and the factor set. If
+//! records were bound to all of that, changing the passphrase would invalidate every
+//! record in the vault — destroying the entire reason the design separates the
+//! key-encryption key from the vault master key, and turning a sub-second header
+//! rewrite into a full re-encryption. Nothing is weakened, because an attacker who
+//! tampers with the KDF parameters cannot unwrap the master key and so never reaches a
+//! record at all.
 //!
 //! # What the associated data deliberately does not cover
 //!
@@ -25,7 +36,7 @@
 //! tempting — it would bind each record to a specific save — but it would also mean
 //! **every save re-encrypts every record**, turning a one-entry edit into a full
 //! vault rewrite. Instead the *set* of records is bound by the manifest, which
-//! stores a hash of every record's ciphertext. That catches deletion, duplication,
+//! stores a hash of every record blob. That catches deletion, duplication,
 //! reordering, and splicing from another version of the file, which is what the
 //! write counter would have caught, without the cost.
 
@@ -389,16 +400,58 @@ impl Header {
         Ok(w.into_vec())
     }
 
-    /// Hash binding the security-relevant header fields.
+    /// Hash binding the key-derivation configuration.
     ///
-    /// Mixed into the associated data of the wrapped key, the manifest, and every
-    /// record, so tampering with any covered field makes decryption fail rather
-    /// than succeed cheaply.
+    /// Covers the format version, flags, vault id, creation time, KDF identifier and
+    /// cost parameters, salt, required factors, AEAD identifier, current epoch, and
+    /// key count — every field an attacker would want to weaken in order to make key
+    /// derivation cheap.
+    ///
+    /// Used **only** for [`Header::wrap_aad`]. See [`Header::identity_hash`] for why
+    /// the manifest and records use something narrower.
     pub fn binding_hash(&self) -> Result<[u8; 32]> {
         Ok(*blake3::hash(&self.encode_binding_prefix()?).as_bytes())
     }
 
+    /// Hash binding the fields that fix how the vault body is interpreted.
+    ///
+    /// Covers exactly three things, and the omissions are the point:
+    ///
+    /// * `format_version` — so a version downgrade cannot reinterpret the bytes.
+    /// * `vault_uuid` — so a record cannot be moved between vaults.
+    /// * `aead_id` — so the cipher cannot be swapped.
+    ///
+    /// # Why not the full binding hash
+    ///
+    /// [`Header::binding_hash`] covers the KDF salt and cost parameters, which is
+    /// correct for the wrapped key. Using it for records too would mean that
+    /// **changing the master passphrase invalidated every record in the vault**,
+    /// because a passphrase change rewrites the salt and parameters. That would
+    /// destroy the whole reason the design separates the key-encryption key from the
+    /// vault master key, and turn a sub-second operation into a full re-encryption.
+    ///
+    /// Nothing is weakened by the narrower hash. An attacker who tampers with the KDF
+    /// parameters cannot unwrap the master key, so they never reach the manifest or a
+    /// record to begin with; `wrap_aad` is where that attack is stopped.
+    ///
+    /// Note that header *flags* are deliberately excluded, because they are mutable
+    /// over a vault's life (enrolling a quick-unlock key sets one). If a future flag
+    /// changes how record bytes are interpreted — compression, say — it must be
+    /// recorded per record or gated behind a format version bump, not left in a
+    /// mutable header field.
+    pub fn identity_hash(&self) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"keel/v1/identity");
+        hasher.update(&self.format_version.to_le_bytes());
+        hasher.update(&self.vault_uuid);
+        hasher.update(&[self.aead_id]);
+        *hasher.finalize().as_bytes()
+    }
+
     /// Associated data for the wrapped master key of a given epoch.
+    ///
+    /// Uses the full [`Header::binding_hash`], which is what makes a KDF-parameter
+    /// downgrade fail instead of succeeding cheaply.
     pub fn wrap_aad(&self, epoch: u32) -> Result<Vec<u8>> {
         let h = self.binding_hash()?;
         let mut aad = Vec::with_capacity(AAD_WRAP.len() + UUID_LEN + 32 + 4);
@@ -411,11 +464,10 @@ impl Header {
 
     /// Associated data for the encrypted manifest.
     ///
-    /// Includes the write counter and the format version, so replaying an old
-    /// manifest under a newer header fails, and so does rolling the format version
-    /// backwards.
+    /// Includes the write counter, so replaying an old manifest under a newer header
+    /// fails.
     pub fn manifest_aad(&self) -> Result<Vec<u8>> {
-        let h = self.binding_hash()?;
+        let h = self.identity_hash();
         let mut aad = Vec::with_capacity(AAD_MANIFEST.len() + UUID_LEN + 32 + 8 + 2);
         aad.extend_from_slice(AAD_MANIFEST);
         aad.extend_from_slice(&self.vault_uuid);
@@ -428,9 +480,9 @@ impl Header {
     /// Associated data for one record.
     ///
     /// Excludes the write counter on purpose — see the module documentation. The
-    /// record *set* is bound by the manifest's per-record ciphertext hashes instead.
+    /// record *set* is bound by the manifest's per-record blob hashes instead.
     pub fn record_aad(&self, record_id: &[u8; UUID_LEN], key_epoch: u32) -> Result<Vec<u8>> {
-        let h = self.binding_hash()?;
+        let h = self.identity_hash();
         let mut aad = Vec::with_capacity(AAD_RECORD.len() + UUID_LEN + 32 + UUID_LEN + 4);
         aad.extend_from_slice(AAD_RECORD);
         aad.extend_from_slice(&self.vault_uuid);
@@ -894,6 +946,94 @@ mod tests {
         h.manifest_offset += 64;
         h.records_offset += 64;
         assert_eq!(h.binding_hash().unwrap(), baseline);
+    }
+
+    #[test]
+    fn record_and_manifest_aad_survive_a_passphrase_change() {
+        // The property that makes "changing the passphrase does not re-encrypt records"
+        // true. A passphrase change rewrites the salt, the cost parameters, the factor
+        // set, and the wrapped key. None of that may alter the associated data used for
+        // the manifest or for records, or every record in the vault would have to be
+        // re-encrypted — turning a sub-second operation into a full rewrite.
+        let before = sample_header();
+        let record_aad_before = before.record_aad(&[7; UUID_LEN], 0).unwrap();
+        let manifest_aad_before = before.manifest_aad().unwrap();
+
+        let mut after = before.clone();
+        after.kdf_salt = [0xEE; keel_crypto::SALT_LEN];
+        after.kdf_params = Argon2Params {
+            m_cost_kib: MIN_M_COST_KIB * 2,
+            t_cost: 5,
+            p_cost: 2,
+        };
+        after.measured_kdf_ms = 4321;
+        after.factors.keyfile = Some([0xAB; 32]);
+        after.wrapped_keys = vec![WrappedKey {
+            epoch: 0,
+            nonce: [0x77; NONCE_LEN],
+            ciphertext: [0x88; WRAPPED_KEY_CT_LEN],
+        }];
+
+        assert_eq!(
+            after.record_aad(&[7; UUID_LEN], 0).unwrap(),
+            record_aad_before,
+            "a passphrase change must not invalidate record associated data"
+        );
+        assert_eq!(
+            after.manifest_aad().unwrap(),
+            manifest_aad_before,
+            "a passphrase change must not invalidate manifest associated data"
+        );
+
+        // But the wrapped-key associated data *must* change, or the downgrade
+        // protection would be gone.
+        assert_ne!(
+            after.wrap_aad(0).unwrap(),
+            before.wrap_aad(0).unwrap(),
+            "the wrapped key must remain bound to the KDF configuration"
+        );
+    }
+
+    #[test]
+    fn identity_hash_covers_what_fixes_interpretation_of_the_body() {
+        let base = sample_header();
+        let baseline = base.identity_hash();
+
+        // Changing any of these would change how the vault body must be read, so each
+        // must invalidate the manifest and records.
+        let mut other_vault = base.clone();
+        other_vault.vault_uuid[0] ^= 1;
+        assert_ne!(other_vault.identity_hash(), baseline, "vault id");
+
+        let mut other_cipher = base.clone();
+        other_cipher.aead_id = 2;
+        assert_ne!(other_cipher.identity_hash(), baseline, "AEAD identifier");
+
+        let mut other_version = base.clone();
+        other_version.format_version = 2;
+        assert_ne!(other_version.identity_hash(), baseline, "format version");
+    }
+
+    #[test]
+    fn identity_hash_ignores_fields_that_change_during_normal_use() {
+        // Header flags are mutable — enrolling a quick-unlock key sets one — so binding
+        // them into record associated data would invalidate the vault on a settings
+        // change. If a future flag ever changes how record bytes are interpreted, it
+        // must live per-record or behind a format version bump instead.
+        let base = sample_header();
+        let baseline = base.identity_hash();
+
+        let mut flagged = base.clone();
+        flagged.flags = flagged.flags.with(HeaderFlags::QUICK_UNLOCK_ENROLLED, true);
+        assert_eq!(flagged.identity_hash(), baseline);
+
+        let mut advanced = base.clone();
+        advanced.write_counter += 50;
+        assert_eq!(advanced.identity_hash(), baseline);
+
+        let mut rotated = base;
+        rotated.created_at += 1;
+        assert_eq!(rotated.identity_hash(), baseline);
     }
 
     #[test]

@@ -160,7 +160,11 @@ pub struct VaultImage {
 /// reconciling a disagreement between the index and the data is how a vault loses an
 /// entry.
 pub fn encode(image: &mut VaultImage, index_key: &Key256) -> Result<Vec<u8>> {
-    if image.manifest.entries.len() != image.records.len() {
+    // Trashed entries keep their records: deletion is soft, so a restore has to find
+    // the ciphertext still there. The record index therefore covers live *and* trashed
+    // entries, and only a purge actually drops one.
+    let indexed = image.manifest.entries.len() + image.manifest.trash.len();
+    if indexed != image.records.len() {
         return Err(Error::Encode(
             "manifest entry count does not match the number of records",
         ));
@@ -186,12 +190,14 @@ pub fn encode(image: &mut VaultImage, index_key: &Key256) -> Result<Vec<u8>> {
         return Err(Error::Encode("records section exceeds the maximum size"));
     }
 
-    // Point each manifest entry at its record.
+    // Point each manifest entry at its record. Trashed entries are searched too, for
+    // the reason given above.
     for (record_id, offset, len, hash) in layout {
         let entry = image
             .manifest
             .entries
             .iter_mut()
+            .chain(image.manifest.trash.iter_mut().map(|t| &mut t.entry))
             .find(|e| e.record_id == record_id)
             .ok_or(Error::Encode("a record has no matching manifest entry"))?;
         entry.blob_offset = offset;
@@ -370,8 +376,15 @@ impl<'a> ParsedVault<'a> {
     }
 
     /// Check that every manifest entry's record is present and unmodified.
+    ///
+    /// Covers trashed entries as well as live ones: a restore must not hand the user a
+    /// record that was quietly swapped while it sat in the trash.
     fn verify_records(&self, manifest: &Manifest) -> Result<()> {
-        for (index, entry) in manifest.entries.iter().enumerate() {
+        let all = manifest
+            .entries
+            .iter()
+            .chain(manifest.trash.iter().map(|t| &t.entry));
+        for (index, entry) in all.enumerate() {
             let blob = self
                 .blob_bytes(entry)
                 .ok_or(Error::RecordMismatch { index })?;
