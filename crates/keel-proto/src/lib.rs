@@ -391,6 +391,22 @@ pub enum Request {
         origin: String,
     },
 
+    /// Show a secret in a native overlay window.
+    ///
+    /// The **agent** spawns `keel-reveal` and pipes the value to it, so the plaintext never
+    /// enters the requesting process. That is the whole reason this exists as a request rather
+    /// than as a client reading the secret and drawing it: the desktop app is a webview, and a
+    /// webview is the last place a password should be.
+    ///
+    /// Answered with [`Response::Ok`] once the overlay has been started. The secret is not part
+    /// of the reply, and there is no variant of this that returns one.
+    RevealOnScreen {
+        /// Which entry.
+        reference: EntryRef,
+        /// Which field to show.
+        field: Field,
+    },
+
     /// Read the vault's settings.
     ReadSettings,
 

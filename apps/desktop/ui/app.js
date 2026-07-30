@@ -316,8 +316,18 @@ function detailPanel() {
         ),
     ]),
     el("div", { class: "note" }, [
-      "Keel never shows you a password. ",
-      "Copy puts it on the clipboard and clears it shortly after; the value does not pass through this window.",
+      "This window never receives a password. Copy puts it on the clipboard and clears it shortly after; ",
+      "Show opens a separate native window that is hidden from screen recording. Neither value passes through here.",
+    ]),
+    el("div", { class: "row" }, [
+      el("button", {
+        text: "Show on screen",
+        onclick: () =>
+          guard(async () => {
+            await call("reveal_on_screen", { reference: d.reference, field: "password" });
+            toast("Opened a window showing it. It closes after 30 seconds, or on any key.");
+          }),
+      }),
     ]),
     el("div", { class: "row" }, [
       el("button", {

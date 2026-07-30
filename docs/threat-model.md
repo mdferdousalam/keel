@@ -360,9 +360,23 @@ passwords the vault holds, and treating them as the same would overstate what th
 achieves. The field is cleared as soon as it is sent, which shortens how long the value is
 reachable from the DOM and does not scrub it from the heap — nothing in a webview can.
 
-Revealing a stored password on screen is deliberately **not** a feature of the window. It
-belongs in a small native overlay that no webview can read and that screenshots come back
-blank from, and that overlay is not built yet.
+Revealing a stored password on screen is deliberately **not** a feature of the window itself.
+It is `keel-reveal`, a separate process with no webview, no HTML, and no font parser — the font
+is a hand-built bitmap, because a font library is a parser for a complex binary format and this
+is the one process that holds a plaintext password.
+
+The **agent** spawns it and writes the secret to its stdin. So the plaintext travels from the
+process that already holds the vault decrypted to the process that draws it, and never enters
+the desktop app at all. Not argv, which is world-readable through `ps`; not a file or an
+environment variable, for the same reason.
+
+On macOS the window sets `NSWindowSharingType::None`, which excludes it from screen recording
+and from the window-capture APIs screenshots use. On Linux there is no mechanism a client can
+use — X11 has none, and Wayland exposes nothing to opt out of a compositor's screencopy — and
+the Windows equivalent is unwritten. **The window reports which of those applies**, because a
+user who believes a window is hidden when it is not would reveal a password during a screen
+share on the strength of it. And none of it stops a phone pointed at the monitor; the window
+says that too.
 
 ## What the audit log does and does not prove
 

@@ -316,12 +316,17 @@ fn the_shell_cannot_ask_for_a_plaintext_secret_at_all() {
     // no export, so there is no code path from the webview to a plaintext value. If either
     // is ever added, this test is where the decision has to be argued.
     let source = include_str!("../src/lib.rs");
-    for forbidden in ["Request::Reveal", "Request::Export"] {
+    // `Request::Reveal {` and not `Request::Reveal`, because `Request::RevealOnScreen` is
+    // permitted and is a different thing: it returns no secret. The agent spawns the overlay and
+    // pipes the value there itself, so the plaintext never enters this process. Matching the
+    // brace keeps the distinction sharp instead of banning a name prefix.
+    for forbidden in ["Request::Reveal {", "Request::Export {"] {
         assert!(
             !source.contains(forbidden),
-            "the desktop shell must not be able to send {forbidden}: revealing a secret \
-             belongs in a separate native window that no webview can read, and exporting \
-             belongs at the command line where a passphrase can be re-entered"
+            "the desktop shell must not be able to send {forbidden}: a reveal that returned \
+             the value would put a password in a webview, and exporting belongs at the command \
+             line where a passphrase can be re-entered. `RevealOnScreen`, which returns no \
+             secret, is the supported way to show one."
         );
     }
     // And nothing in the shell should be handling a response that carries plaintext other

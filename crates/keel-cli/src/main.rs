@@ -277,6 +277,21 @@ enum Command {
         yes: bool,
     },
 
+    /// Show a secret in a native overlay window instead of printing it.
+    ///
+    /// The overlay is a separate process with no webview and no font parser. On macOS it is
+    /// excluded from screen recording and screenshots; the window says plainly whether that
+    /// applied, because on Linux there is no mechanism for it and on Windows it is not written.
+    ///
+    /// Safer than `keel get --show`, which leaves the password in terminal scrollback.
+    Show {
+        /// Entry name or id.
+        name: String,
+        /// Which field.
+        #[arg(long, default_value = "password", value_parser = ["password", "username", "totp", "notes"])]
+        field: String,
+    },
+
     /// Register the browser bridge so a browser can launch it.
     ///
     /// Writes the native-messaging manifests that tell Chrome, Edge, Brave, Vivaldi, and
@@ -505,6 +520,7 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             output,
             yes,
         } => export(&mut client, format, output.as_deref(), *yes, cli.json),
+        Command::Show { name, field } => show(&mut client, name, field, cli.json),
         Command::SetupBrowser { .. } => unreachable!("handled before connecting"),
         Command::Settings { agent_reveal } => {
             settings(&mut client, agent_reveal.as_deref(), cli.json)
@@ -859,6 +875,21 @@ fn write_private_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), Client
         context: "flushing the export file",
         source: e,
     })
+}
+
+/// Show a secret in the native overlay.
+fn show(client: &mut Client, name: &str, field: &str, json: bool) -> Result<(), ClientError> {
+    let reference = resolve(client, name)?;
+    client.request(&Request::RevealOnScreen {
+        reference,
+        field: parse_field(field).map_err(ClientError::Refused)?,
+    })?;
+    emit(
+        json,
+        "Opened a Keel window showing it. It closes after 30 seconds, or on any key.",
+        &serde_json::json!({"shown": true}),
+    );
+    Ok(())
 }
 
 /// Register the browser bridge with every browser this machine appears to have.

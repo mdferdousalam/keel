@@ -1,7 +1,19 @@
-//! Keel native reveal overlay: renders one secret outside any webview.
+//! The Keel reveal overlay.
 //!
-//! Implemented in a later phase; see PLAN.md.
+//! Started by the agent with the secret on stdin; see [`keel_reveal`] for why it is a separate
+//! process, why the secret arrives that way, and what "non-capturable" does and does not mean.
 
-fn main() {
-    // Placeholder entry point. Replaced in the phase that implements this binary.
+// The one thing this prints is a startup failure, to the parent's stderr.
+#![allow(clippy::print_stderr)]
+
+fn main() -> std::process::ExitCode {
+    match keel_reveal::window::run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            // Cannot carry the secret: every error path here is about stdin framing or the
+            // window server, and the secret is never formatted into a message.
+            eprintln!("keel-reveal: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
 }

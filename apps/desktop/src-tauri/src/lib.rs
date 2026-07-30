@@ -263,6 +263,29 @@ fn copy_field(
     }
 }
 
+/// Show a secret in the native overlay.
+///
+/// Note what this does **not** do: return the secret. The agent spawns `keel-reveal` and pipes
+/// the value to it directly, so the plaintext goes from the process holding the vault to the
+/// process drawing it and never enters this one — let alone the webview. This command receives
+/// nothing but an acknowledgement.
+///
+/// That is why on-screen reveal can exist at all in a masked-only design. A reveal that returned
+/// the value here would put a password in a webview, which is the thing the whole shell is
+/// arranged to prevent.
+#[tauri::command]
+fn reveal_on_screen(
+    link: tauri::State<'_, AgentLink>,
+    reference: String,
+    field: String,
+) -> Result<(), String> {
+    link.request(&Request::RevealOnScreen {
+        reference: keel_proto::EntryRef(reference),
+        field: parse_field(&field)?,
+    })?;
+    Ok(())
+}
+
 /// Add an entry with a generated password.
 ///
 /// Generation happens in the agent and the value is never returned. The user does not see
@@ -421,6 +444,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             search,
             entry_detail,
             copy_field,
+            reveal_on_screen,
             add_entry,
             rotate,
             trash,

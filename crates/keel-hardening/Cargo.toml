@@ -20,6 +20,10 @@ dbg_macro = "deny"
 todo = "warn"
 
 [dependencies]
+# For `exclude_window_from_capture`. A handle type carrying a lifetime is what lets that
+# function be safe: the borrow proves the window is alive, so no precondition is left for a
+# caller to get wrong.
+raw-window-handle = "0.6"
 keel-crypto = { path = "../keel-crypto" }
 
 [target.'cfg(unix)'.dependencies]
@@ -31,6 +35,17 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Memory",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Threading",
+] }
+
+# Only for the screen-capture exclusion in `platform`. The reveal overlay cannot make this
+# call itself: it needs `unsafe`, and `unsafe` lives here.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSWindow",
+    "NSView",
+    "NSResponder",
 ] }
 
 [dev-dependencies]

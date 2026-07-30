@@ -279,6 +279,9 @@ impl Session {
             Request::FillCredential { reference, origin } => {
                 self.handle_fill(&client, &reference, &origin)
             }
+            Request::RevealOnScreen { reference, field } => {
+                self.handle_reveal_on_screen(&client, &reference, field)
+            }
             Request::ReadSettings => self.handle_read_settings(&client),
             Request::SetMcpRevealEnabled { enabled } => {
                 self.handle_set_mcp_reveal(&client, enabled)
@@ -1255,6 +1258,63 @@ impl Session {
         ))
     }
 
+    /// Show a secret in the native overlay.
+    ///
+    /// The agent spawns `keel-reveal` and writes the value to its stdin, so the plaintext goes
+    /// from the process that already holds it decrypted straight to the process that draws it.
+    /// It never enters the desktop app, which is a webview and therefore the last place a
+    /// password should be.
+    ///
+    /// Not on the command line: argv is world-readable through `ps`. Not through a file or an
+    /// environment variable, for the same reason. Stdin, closed immediately after writing.
+    ///
+    /// Human-driven clients only. An AI agent or a browser extension asking to put a password
+    /// on the user's screen is not a request with a sensible reading — and an agent that could
+    /// do it while the user was away would have found a very quiet exfiltration channel, since
+    /// screen contents are exactly what a compromised machine is already recording.
+    fn handle_reveal_on_screen(
+        &mut self,
+        client: &Client,
+        reference: &EntryRef,
+        field: Field,
+    ) -> Result<Response> {
+        if !client.client_type.is_human_driven() {
+            return Err(Failure::new(
+                ErrorCode::Denied,
+                "only the desktop app or the command line may put a secret on the screen",
+            ));
+        }
+
+        let id = self.lock_state()?.resolve(reference)?;
+        // Goes through the same reveal authorisation as any other disclosure: this *is* a
+        // disclosure, to whoever can see the monitor.
+        let operation = Operation::RevealSecret {
+            entry: id,
+            reason: "shown in the Keel overlay window".to_owned(),
+        };
+        self.authorize(client, &operation, Some(id))?;
+
+        let mut state = self.lock_state()?;
+        state.touch();
+        let body = state
+            .vault()?
+            .reveal(&id)
+            .map_err(|e| Failure::from_core(&e))?;
+        let value = field_value(&body, field)?;
+        let label = state
+            .vault()?
+            .entry(&id)
+            .map(|entry| entry.title.clone())
+            .unwrap_or_else(|_| "Keel".to_owned());
+        drop(body);
+
+        spawn_reveal(&label, &value)?;
+
+        state.audit(client, "reveal_on_screen", Some(id), Outcome::Allowed, None);
+        state.flush_audit();
+        Ok(Response::Ok)
+    }
+
     /// Read the vault's settings.
     fn handle_read_settings(&mut self, client: &Client) -> Result<Response> {
         self.authorize(client, &Operation::Status, None)?;
@@ -1564,6 +1624,73 @@ fn materialise_secret(source: &SecretSource, state: &AgentState) -> Result<(Stri
         }
     }
 }
+
+/// Start the overlay and hand it the secret on stdin.
+///
+/// The binary is looked for beside the agent, so an installed Keel uses its own overlay rather
+/// than whatever is first on `PATH` — mixing versions across an IPC boundary is a class of bug
+/// worth designing out.
+///
+/// Fire and forget: the overlay owns the window and closes itself. The agent does not wait,
+/// because a request that blocked for thirty seconds would hold a connection thread for the
+/// life of a window.
+fn spawn_reveal(label: &str, value: &str) -> Result<()> {
+    use std::io::Write as _;
+
+    let binary = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(REVEAL_BINARY)))
+        .ok_or_else(|| {
+            Failure::new(
+                ErrorCode::Internal,
+                "could not work out where the reveal overlay is",
+            )
+        })?;
+
+    let mut child = std::process::Command::new(&binary)
+        .stdin(std::process::Stdio::piped())
+        // stderr is inherited so the overlay's report — whether the window is actually hidden
+        // from screen capture — reaches the same log as the agent's own messages.
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| {
+            Failure::new(
+                ErrorCode::Internal,
+                format!(
+                    "could not start the reveal overlay at {}: {e}",
+                    binary.display()
+                ),
+            )
+        })?;
+
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| Failure::new(ErrorCode::Internal, "the reveal overlay has no stdin"))?;
+    // One line of label, then the secret, then close. Closing is what tells the overlay the
+    // secret is complete.
+    let written = stdin
+        .write_all(label.as_bytes())
+        .and_then(|()| stdin.write_all(b"\n"))
+        .and_then(|()| stdin.write_all(value.as_bytes()))
+        .and_then(|()| stdin.flush());
+    // Dropped explicitly so the pipe closes now rather than whenever `child` goes out of scope.
+    drop(child.stdin.take());
+
+    written.map_err(|e| {
+        Failure::new(
+            ErrorCode::Internal,
+            format!("could not send the secret to the reveal overlay: {e}"),
+        )
+    })
+}
+
+/// Filename of the overlay binary, as installed next to the agent.
+#[cfg(windows)]
+const REVEAL_BINARY: &str = "keel-reveal.exe";
+/// Filename of the overlay binary, as installed next to the agent.
+#[cfg(not(windows))]
+const REVEAL_BINARY: &str = "keel-reveal";
 
 /// Stand-in query length for an origin lookup.
 ///

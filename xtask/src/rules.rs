@@ -63,7 +63,10 @@ pub fn allowed_internal_deps(crate_name: &str) -> Option<&'static [&'static str]
         "keel-native-host" => &["keel-client", "keel-proto"],
         // The reveal overlay receives one already-decrypted secret over an
         // inherited socket. It deliberately cannot open a vault itself.
-        "keel-reveal" => &["keel-proto"],
+        // The overlay receives one already-decrypted secret on stdin from the agent. It
+        // deliberately cannot open a vault. `keel-hardening` is here for one call — excluding
+        // the window from screen capture — because that needs `unsafe`, which lives there.
+        "keel-reveal" => &["keel-hardening", "keel-proto"],
 
         // ---- leaf helpers -------------------------------------------------
         // Importers build plaintext entries for the agent to encrypt. They need

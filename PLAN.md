@@ -8,7 +8,7 @@
 | 1 — keel-crypto, keel-format, keel-hardening | **Done** | ~34M fuzz executions after the last format change, zero crashes |
 | 2 — keel-store, keel-core | **Done** | Crash safety verified by SIGKILL; policy engine complete including the approval lifecycle |
 | 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Full CLI surface |
-| 3 — keel-reveal | Not started | Native non-capturable overlay. The only thing blocking on-screen reveal in the GUI. |
+| 3 — keel-reveal | **Done** | winit + softbuffer, hand-built bitmap font, no font parser. Excluded from screen capture on macOS, verified. The agent spawns it and pipes the secret, so plaintext never enters the GUI process. |
 | 4 — Tauri desktop GUI | **Done** | Masked-only window, approval dialogs, health, activity, access, settings. Canary test verified to fail when a leak is injected. |
 | 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects |
 | 5 — Browser extension | **Done, minus pairing** | `keel-native-host`, MV3 extension, `keel setup-browser`. Origin matching in the agent, with every look-alike case tested. SAS pairing and the Noise channel are not built. |
@@ -22,8 +22,9 @@
 
 **Not working, deliberately loud about it:**
 
-- **Revealing a password on screen.** Belongs in `keel-reveal`, a native overlay no webview
-  can read. Not built, so the GUI has no reveal at all — copy instead.
+- **Hiding the overlay from screen capture on Linux and Windows.** Works on macOS. Linux has
+  no mechanism a client can use, so this is unachievable rather than unwritten; Windows is
+  unwritten along with the rest of that platform. The window says which applies.
 - **Typing into the focused window.** Refused until it can verify which window has focus;
   without that it is worse than the clipboard.
 - **Pairing between the extension and the agent.** SAS code plus a Noise channel, per §6.3.

@@ -107,7 +107,8 @@ cargo build --release
 ./target/release/keel init          # create a vault
 ./target/release/keel add "Example Bank" --username you@example.com
 ./target/release/keel list
-./target/release/keel get "Example Bank" --show
+./target/release/keel show "Example Bank"     # in a native window, hidden from screen recording on macOS
+keel get "Example Bank" --show
 ```
 
 `keel add` generates a 20-character password (~129 bits) and never prints it. `keel get`
@@ -225,9 +226,11 @@ Stated so nothing here is mistaken for a bug:
 - **Pairing between the extension and the agent.** The plan calls for a SAS code and a Noise
   channel. Not built. Its value is against a same-user process impersonating the browser,
   which is outside the threat model the rest of Keel is written against — but it is a real gap.
-- **Revealing a password on screen.** By design this belongs in a small native overlay that
-  no webview can read, and that overlay is not built. Copy to the clipboard instead, or use
-  `keel get --show` at a terminal.
+- **Hiding the reveal overlay from screen capture on Linux and Windows.** It works on macOS
+  (`NSWindowSharingType::None`). Linux has no mechanism a client can use — X11 has none at all,
+  and Wayland exposes nothing to opt out of a compositor's screencopy — and the Windows call is
+  unwritten. The window states which of those applies rather than implying protection it does
+  not have.
 - **Typing a secret into the focused window.** Refused rather than approximated: without a
   check that the window receiving the keystrokes is the one you were shown, typing is
   strictly worse than the clipboard, because it delivers the password to whatever grabbed

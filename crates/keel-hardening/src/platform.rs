@@ -359,6 +359,72 @@ pub fn peer_credentials(stream: &std::os::unix::net::UnixStream) -> Option<(u32,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Screen-capture exclusion
+// ---------------------------------------------------------------------------
+
+/// Ask the window server to keep a window out of screen recordings and screenshots.
+///
+/// Lives here because it needs `unsafe`, and `unsafe` is confined to this crate.
+///
+/// # Why this is a safe function
+///
+/// It takes a [`WindowHandle`], whose lifetime parameter borrows the window it came from. That
+/// borrow *is* the proof the underlying view is alive for the duration of the call, so there is
+/// no precondition left for a caller to violate and no reason to make them write `unsafe` at a
+/// boundary where they have nothing to verify. An earlier version took a raw pointer and was
+/// `unsafe`, which pushed the obligation onto `keel-reveal` — a crate that forbids `unsafe`
+/// outright, and correctly so.
+///
+/// # The return value is shown to the user
+///
+/// It reports whether the exclusion was actually applied, and the overlay displays that. A
+/// window a user believes is hidden from recording, when it is not, is worse than one they know
+/// is ordinary: they would reveal a password during a screen share on the strength of it.
+///
+/// # Platforms
+///
+/// * **macOS** — `NSWindowSharingType::None`. Excludes the window from screen recording and
+///   from the window-capture APIs screenshots go through.
+/// * **Windows** — would be `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`. Not
+///   implemented; the agent does not run on Windows yet either.
+/// * **Linux** — there is no general mechanism. X11 has none at all, and Wayland exposes
+///   nothing a client can use to opt out of a compositor's screencopy. Honestly unachievable
+///   rather than merely unwritten, which is why the overlay warns rather than silently doing
+///   nothing.
+#[must_use]
+pub fn exclude_window_from_capture(handle: raw_window_handle::WindowHandle<'_>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::rc::Retained;
+        use objc2_app_kit::{NSView, NSWindowSharingType};
+        use raw_window_handle::RawWindowHandle;
+
+        let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+            return false;
+        };
+        // SAFETY: `handle` borrows the window it came from, so the view pointer is live for
+        // this call. `retain` takes our own reference, so the object cannot be released while
+        // the messages below are sent.
+        let view: Option<Retained<NSView>> =
+            unsafe { Retained::retain(appkit.ns_view.as_ptr().cast::<NSView>()) };
+        let Some(view) = view else {
+            return false;
+        };
+        // A view not yet in a window has no window to exclude.
+        let Some(window) = view.window() else {
+            return false;
+        };
+        window.setSharingType(NSWindowSharingType::None);
+        true
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = handle;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
