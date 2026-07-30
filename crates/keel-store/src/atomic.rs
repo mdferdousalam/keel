@@ -267,8 +267,43 @@ fn rotate_backups(paths: &VaultPaths) -> Result<()> {
         }
     }
     if paths.vault.exists() {
-        fs::copy(&paths.vault, paths.backup(1))
-            .map_err(|e| Error::io("creating backup", paths.backup(1), e))?;
+        // Copy to a temporary file in the same directory and rename it into place, rather
+        // than copying straight onto `.bak.1`.
+        //
+        // `fs::copy` is not atomic. Writing directly to the backup path meant a process
+        // killed partway through left a **truncated backup** — a corrupt file at exactly the
+        // moment a user reaches for a good one. The crash test caught this: the shifts below
+        // already used `rename`, so only the copy was exposed, and it needed a kill to land
+        // inside a window of a few milliseconds.
+        //
+        // With a temp file, a kill leaves either the old complete `.bak.1` or a stray temp
+        // that nothing reads and `a_leftover_temporary_file_does_not_affect_the_vault`
+        // already covers.
+        let temp = tempfile::Builder::new()
+            .prefix(".keel-bak-")
+            .suffix(".keel")
+            .tempfile_in(paths.directory())
+            .map_err(|e| Error::io("creating temporary backup", paths.directory(), e))?;
+        // Restricted before any bytes land in it, so the backup is never briefly readable by
+        // anyone else — the same order the main write uses.
+        restrict_permissions(temp.path())?;
+        {
+            let mut source = fs::File::open(&paths.vault)
+                .map_err(|e| Error::io("opening vault to back up", &paths.vault, e))?;
+            let file = temp.as_file();
+            let mut sink = file;
+            std::io::copy(&mut source, &mut sink)
+                .map_err(|e| Error::io("copying vault to backup", temp.path(), e))?;
+            sink.flush()
+                .map_err(|e| Error::io("flushing backup", temp.path(), e))?;
+            // Durable before the rename, or the rename can land while the contents have not —
+            // which would produce the very partial backup this is avoiding.
+            file.sync_all()
+                .map_err(|e| Error::io("syncing backup", temp.path(), e))?;
+        }
+        temp.into_temp_path()
+            .persist(paths.backup(1))
+            .map_err(|e| Error::io("replacing backup", paths.backup(1), e.error))?;
         restrict_permissions(&paths.backup(1))?;
     }
     Ok(())
