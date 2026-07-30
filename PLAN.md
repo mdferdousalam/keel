@@ -10,17 +10,20 @@
 | 3 — keel-proto, keel-agent, keel-client, keel-cli | **Done** | Works end to end; 18 e2e tests |
 | 3 — keel-reveal | Not started | Native non-capturable overlay for plaintext display |
 | 4 — Tauri desktop GUI | Not started | |
-| 5 — Browser extension + import | Not started | |
-| 6 — MCP server | Not started | Policy engine and protocol already support it |
+| 5 — CSV import | **Done** | Chrome/Firefox/Safari/Bitwarden/1Password/LastPass/KeePass dialects, `keel import` |
+| 5 — Browser extension | Not started | Native host, MV3 extension, SAS pairing |
+| 6 — MCP server | **Done** | Verified: a fully-granted agent still cannot obtain a password |
 | 7 — Release pipeline | **Mostly done** | Workflows, `verify-release`, VERIFY/REPRODUCE docs. Signing keys not yet generated; packaging configs (Homebrew/Scoop/AUR) not written. |
 
 **Currently working:** `keel init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
-`get`, `rotate`, `rm`, `generate`, `save`, with `--json` throughout. 326 unit tests plus
-18 end-to-end; clippy clean under `-D warnings`.
+`get`, `rotate`, `rm`, `generate`, `save`, `import`, `grant`, `grants`, `revoke`,
+`verify-release`, with `--json` throughout. Plus `keel-mcp`, a working MCP server for AI
+agents. 393 unit tests plus 18 end-to-end; clippy clean under `-D warnings`.
 
 **Not working yet, deliberately loud about it:** clipboard and synthetic typing need the
-desktop app and fail with a clear message rather than pretending; `import`, `export`, and
-`audit` are unimplemented; Windows needs a named-pipe transport that is not written.
+desktop app and fail with a clear message rather than pretending; `export` and `audit` are
+unimplemented; Windows needs a named-pipe transport that is not written; release signing keys
+have not been generated, so `verify-release` refuses rather than pretending to check.
 
 ## Decisions that changed during implementation
 

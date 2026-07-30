@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 keel-client = { path = "../keel-client" }
+keel-import = { path = "../keel-import" }
 keel-proto = { path = "../keel-proto" }
 clap = { version = "4", features = ["derive", "wrap_help"] }
 rpassword = "7"

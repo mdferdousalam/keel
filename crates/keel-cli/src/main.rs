@@ -182,6 +182,24 @@ enum Command {
     /// Save pending changes to disk.
     Save,
 
+    /// Import passwords from a CSV exported by another password manager or browser.
+    ///
+    /// The file format is detected automatically. Chrome, Firefox, Safari, Bitwarden,
+    /// 1Password, LastPass, and KeePass exports are all recognised.
+    Import {
+        /// Path to the exported CSV.
+        file: std::path::PathBuf,
+        /// Show what would be imported without changing the vault.
+        #[arg(long)]
+        dry_run: bool,
+        /// Overwrite and delete the CSV after a successful import.
+        ///
+        /// Best effort: on an SSD or a copy-on-write filesystem this does not reliably destroy
+        /// the old contents. Full-disk encryption is what actually protects them.
+        #[arg(long)]
+        shred: bool,
+    },
+
     /// Grant an AI agent or browser extension access to the vault.
     ///
     /// Agents start with no access at all. This is how a human authorises one, and it is
@@ -332,6 +350,11 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             *all_entries,
             cli.json,
         ),
+        Command::Import {
+            file,
+            dry_run,
+            shred,
+        } => import(&mut client, file, *dry_run, *shred, cli.json),
         Command::Grants => grants(&mut client, cli.json),
         Command::Revoke { client_id } => {
             client.request(&Request::RevokeAccess {
@@ -346,6 +369,115 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
         }
         Command::VerifyRelease { .. } => unreachable!("handled before connecting"),
     }
+}
+
+/// Import a CSV export.
+fn import(
+    client: &mut Client,
+    file: &std::path::Path,
+    dry_run: bool,
+    shred_after: bool,
+    json: bool,
+) -> Result<(), ClientError> {
+    let report = keel_import::read_csv(file).map_err(|error| ClientError::Agent {
+        code: ErrorCode::BadRequest,
+        message: error.to_string(),
+    })?;
+
+    if !json {
+        println!("{}", report.summary());
+    }
+
+    if dry_run {
+        // Titles only. Printing usernames for a whole vault would put them all in scrollback,
+        // and a dry run is about "is this the right file", not about reviewing every field.
+        if json {
+            print_json(&serde_json::json!({
+                "source": report.source.name(),
+                "entries": report.entries.len(),
+                "skipped_without_password": report.skipped_without_password,
+                "skipped_malformed": report.skipped_malformed,
+                "titles": report.entries.iter().map(|e| &e.title).collect::<Vec<_>>(),
+            }));
+        } else {
+            println!("\nWould import:");
+            for entry in &report.entries {
+                println!("  {}", entry.title);
+            }
+            println!("\nNothing was changed. Run without --dry-run to import.");
+        }
+        return Ok(());
+    }
+
+    let mut imported = 0usize;
+    let mut failed = 0usize;
+    for entry in &report.entries {
+        let request = Request::CreateEntry {
+            input: EntryInput {
+                title: entry.title.clone(),
+                username: entry.username.clone(),
+                origins: if entry.url.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![entry.url.clone()]
+                },
+                tags: vec!["imported".to_owned()],
+                notes: entry.notes.to_string(),
+            },
+            // The imported password, not a generated one: the point of an import is to keep
+            // the credentials that already work.
+            secret: SecretSource::Provided {
+                value: entry.password.to_string(),
+            },
+        };
+        match client.request(&request) {
+            Ok(_) => imported += 1,
+            Err(error) => {
+                failed += 1;
+                // Name the entry, never the reason's payload, and keep going: one bad row must
+                // not abandon an import half done.
+                eprintln!("keel: could not import {:?}: {error}", entry.title);
+            }
+        }
+    }
+
+    // One save for the whole import, so it lands as a single atomic write rather than several
+    // hundred.
+    client.request(&Request::Save)?;
+
+    if json {
+        print_json(&serde_json::json!({
+            "source": report.source.name(),
+            "imported": imported,
+            "failed": failed,
+            "skipped_without_password": report.skipped_without_password,
+        }));
+    } else {
+        println!("\nImported {imported} entries, tagged \"imported\".");
+        if failed > 0 {
+            println!("{failed} entries could not be imported; see the messages above.");
+        }
+    }
+
+    if shred_after {
+        match keel_import::shred(file) {
+            Ok(()) => {
+                if !json {
+                    println!(
+                        "\nDeleted {}. Note that on an SSD or a copy-on-write filesystem this \
+                         does not reliably destroy the old contents.",
+                        file.display()
+                    );
+                }
+            }
+            Err(error) => eprintln!("keel: could not delete the import file: {error}"),
+        }
+    } else if !json {
+        // The file is now the most dangerous thing on the disk. Say so.
+        println!("\n{}", keel_import::EXPORT_WARNING);
+    }
+
+    Ok(())
 }
 
 /// Grant a client access.

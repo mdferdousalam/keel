@@ -37,8 +37,17 @@ whether an older Keel can still open your vault.
   and publication as a **draft** awaiting offline signatures.
 - `rebuild.yml`: anyone can rebuild any tag on a fork and compare against the published
   artifacts. Also runs weekly, so a substitution after publication is noticed.
-- `docs/threat-model.md`, `docs/architecture.md`, `docs/cli.md`, `docs/VERIFY.md`, and
-  `docs/REPRODUCE.md`.
+- `keel-mcp`: an MCP server for AI agents, implemented directly on newline-delimited
+  JSON-RPC rather than via the async SDK, to keep tokio out of the product. `use_secret`
+  applies a password without returning it; `reveal_secret` is off by default.
+- `keel grant`, `keel grants`, `keel revoke`: a human authorises an automated client
+  explicitly. Only a human-driven client may grant; anyone may revoke.
+- `keel-import` and `keel import`: CSV import with automatic dialect detection for Chrome,
+  Firefox, Safari, Bitwarden, 1Password, LastPass, and KeePass. Errors never carry a field
+  value, `Debug` redacts even the title, and `--shred` is honest that overwriting a file on
+  modern storage is best effort.
+- `docs/threat-model.md`, `docs/architecture.md`, `docs/cli.md`, `docs/mcp.md`,
+  `docs/VERIFY.md`, and `docs/REPRODUCE.md`.
 - `SECURITY.md` with disclosure policy and an explicit out-of-scope list.
 
 - `keel-hardening`: the workspace's only `unsafe` crate. Core-dump suppression,
