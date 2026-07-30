@@ -34,7 +34,12 @@ full-system smoke test that exercises every command in one session with zero fai
 - **Pairing between the extension and the agent.** SAS code plus a Noise channel, per §6.3.
   Its value is against a same-user process impersonating the browser, which is outside the
   threat model the rest of Keel is written against — recorded as a gap, not skipped quietly.
-- **Windows.** The agent refuses to start. The transport is now *specified* in
+- **Windows — it does not compile.** `keel-hardening` references windows-sys symbols that do
+  not resolve (`WerRegisterExcludedMemoryBlock`, `Win32::System::SystemInformation`, and two
+  process-mitigation policy types), so the crate fails to build before the missing transport
+  even matters. Removed from the CI matrix rather than left red on every commit; a permanently
+  failing job for an unsupported platform trains people to ignore the matrix.
+  The transport is *specified* in
   `docs/architecture.md` rather than implemented: it needs the Windows security APIs, the
   load-bearing part is a token-SID comparison whose failure mode is to silently grant access,
   and none of it can be compiled — let alone run — on the machine this was developed on.

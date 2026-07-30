@@ -59,11 +59,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # All three supported platforms on every pull request. The vault format
-        # and the atomic-write path have real platform differences (directory
-        # fsync, rename semantics, path handling), so testing only Linux would
-        # miss exactly the bugs that corrupt someone's vault.
-        os: [ubuntu-latest, macos-14, windows-2022]
+        # Both supported platforms on every pull request. The vault format and the
+        # atomic-write path have real platform differences — directory fsync, rename
+        # semantics, path handling — so testing only Linux would miss exactly the bugs
+        # that corrupt someone's vault. Linux caught one in this very file's history: a
+        # stale-socket check that deleted regular files, because `connect` to a
+        # non-socket returns ECONNREFUSED there and something else on macOS.
+        #
+        # windows-2022 is deliberately absent. Keel does not compile on Windows:
+        # `keel-hardening` references windows-sys symbols that do not resolve
+        # (`WerRegisterExcludedMemoryBlock`, `Win32::System::SystemInformation`, two
+        # process-mitigation policy types), and the agent has no named-pipe transport —
+        # `docs/architecture.md` specifies it. A job that is red on every commit for a
+        # platform nobody claims to support is not a signal, it is noise that teaches
+        # people to ignore the matrix. It goes back in when the platform builds.
+        os: [ubuntu-latest, macos-14]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master

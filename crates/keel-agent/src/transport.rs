@@ -276,6 +276,27 @@ impl Listener {
         // test — the file's existence says nothing, and a pid file would be its own stale
         // state to manage.
         if path.exists() {
+            // Check the file *type* before the connect, not after. Deciding staleness from the
+            // connect error alone is not portable and was wrong: connecting to a regular file
+            // returns `ECONNREFUSED` on Linux, so a plain file at this path was classified as a
+            // dead socket and deleted — exactly the data loss this check exists to prevent. It
+            // happened to behave on macOS, which is why only Linux CI caught it.
+            //
+            // `symlink_metadata` rather than `metadata`, so a symlink is judged on itself. A
+            // symlink here pointing at something valuable must be refused, not followed and
+            // then unlinked.
+            let is_socket = std::fs::symlink_metadata(path)
+                .map(|meta| std::os::unix::fs::FileTypeExt::is_socket(&meta.file_type()))
+                .unwrap_or(false);
+            if !is_socket {
+                return Err(TransportError::io(
+                    "the agent socket path is occupied by something that is not a socket",
+                    std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "refusing to remove it: KEEL_AGENT_SOCKET may be pointing at a real file",
+                    ),
+                ));
+            }
             match std::os::unix::net::UnixStream::connect(path) {
                 // Somebody answered, so an agent is already serving this socket.
                 Ok(_) => {
@@ -287,9 +308,8 @@ impl Listener {
                     std::fs::remove_file(path)
                         .map_err(|e| TransportError::io("removing a stale agent socket", e))?;
                 }
-                // Anything else — a permission error, or something that is not a socket at
-                // all — is not ours to delete. Refusing beats destroying a file we do not
-                // understand.
+                // Anything else — a permission error, most likely. Not ours to resolve:
+                // refusing beats deleting a socket we cannot even probe.
                 Err(e) => {
                     return Err(TransportError::io(
                         "checking whether an agent already holds the socket",
@@ -635,6 +655,34 @@ mod tests {
         assert!(
             path.exists(),
             "an unrecognised file must be left alone, not deleted"
+        );
+        // The file must also be untouched, not merely present.
+        assert_eq!(
+            std::fs::read(&path).expect("the decoy should still be readable"),
+            b"not a socket",
+            "the decoy file's contents must be unchanged"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binding_refuses_a_symlink_at_the_socket_path() {
+        // A symlink is judged on itself rather than followed. Following one and then unlinking
+        // it would delete whatever it pointed at, and `KEEL_AGENT_SOCKET` is user-settable.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let target = dir.path().join("something-precious");
+        std::fs::write(&target, b"do not delete me").expect("write the target");
+        let path = dir.path().join("agent.sock");
+        std::os::unix::fs::symlink(&target, &path).expect("create the symlink");
+
+        assert!(
+            Listener::bind(&path).is_err(),
+            "a symlink at the socket path must be refused"
+        );
+        assert!(target.exists(), "the symlink's target must survive");
+        assert_eq!(
+            std::fs::read(&target).expect("target readable"),
+            b"do not delete me"
         );
     }
 }
