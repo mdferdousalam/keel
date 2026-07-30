@@ -1,0 +1,35 @@
+# libFuzzer dictionary for the Keel vault format.
+#
+# The parser gates on these byte strings, and random mutation would take a very
+# long time to discover them. Handing them over lets the fuzzer spend its budget on
+# the code behind the gates rather than on the gates themselves.
+
+# File markers
+magic_start="KEELVLT\x01"
+magic_end="KEELEND\x01"
+
+# Format and algorithm identifiers
+version_1="\x01\x00"
+kdf_argon2id="\x01"
+aead_xchacha="\x01"
+
+# Factor flag combinations
+factor_none="\x00"
+factor_keyfile="\x01"
+factor_yubikey="\x02"
+factor_fido2="\x04"
+factor_all="\x07"
+
+# Salt length the header requires
+salt_len_32="\x20"
+
+# Boundary values that tend to sit at length fields
+zero_u32="\x00\x00\x00\x00"
+one_u32="\x01\x00\x00\x00"
+max_u32="\xff\xff\xff\xff"
+zero_u64="\x00\x00\x00\x00\x00\x00\x00\x00"
+max_u64="\xff\xff\xff\xff\xff\xff\xff\xff"
+
+# Padding block sizes, which unpadding validates against
+block_256="\x00\x01\x00\x00"
+block_4096="\x00\x10\x00\x00"

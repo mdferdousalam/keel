@@ -1,0 +1,62 @@
+[package]
+name = "keel-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Deliberately its own workspace: fuzz targets need nightly and a sanitizer, and
+# mixing that into the main workspace would leak instrumentation flags into
+# ordinary builds.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+keel-crypto = { path = "../crates/keel-crypto" }
+keel-format = { path = "../crates/keel-format" }
+
+[profile.release]
+debug = 1
+
+# The format parser is the only code in the project that reads fully
+# attacker-controlled bytes, so each layer of it gets its own target. Splitting them
+# lets the fuzzer spend its budget inside one decoder instead of rediscovering the
+# outer framing every time.
+
+[[bin]]
+name = "vault_parse"
+path = "fuzz_targets/vault_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "header_decode"
+path = "fuzz_targets/header_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "record_decode"
+path = "fuzz_targets/record_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest_decode"
+path = "fuzz_targets/manifest_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gen_corpus"
+path = "src/bin/gen_corpus.rs"
+test = false
+doc = false
+bench = false

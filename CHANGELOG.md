@@ -22,8 +22,27 @@ whether an older Keel can still open your vault.
 - `docs/threat-model.md` and `docs/architecture.md`.
 - `SECURITY.md` with disclosure policy and an explicit out-of-scope list.
 
+- `keel-hardening`: the workspace's only `unsafe` crate. Core-dump suppression,
+  `PR_SET_DUMPABLE`/`PT_DENY_ATTACH`, Windows injection mitigations, and
+  reference-counted page locking. The refcounting matters: several 32-byte keys
+  share a page, so unlocking on drop without it would unpin pages holding live
+  keys. Reports which protections are actually in force rather than assuming.
+- `keel-format`: vault format v1 — authenticated header with a binding hash over
+  the KDF parameters (blocking the downgrade attack), per-record AEAD, encrypted
+  manifest, padded sections, and a footer corruption check. Layout is header,
+  records, manifest, footer; records precede the manifest to break the circular
+  dependency between the manifest's length and the offsets it stores.
+- `docs/vault-format.md`: normative format specification.
+- Fuzz targets for all four decoder layers, with a seed-corpus generator and a
+  libFuzzer dictionary. Seeding is essential here — the footer checksum means
+  random mutation would otherwise never reach the parser.
+
 ### Security
 - Project rule recorded in `CONTRIBUTING.md`: no asymmetric primitive may enter
   the confidentiality path without a hybrid classical + post-quantum construction.
+- Size limits are now compile-time (`const`) assertions, so an inconsistent limit
+  fails the build rather than waiting for a test run.
+- The format parser contains no panic paths: no indexing, no `unwrap`, and every
+  length validated against a limit before it sizes an allocation.
 
 [Unreleased]: https://github.com/keel-vault/keel/commits/main
