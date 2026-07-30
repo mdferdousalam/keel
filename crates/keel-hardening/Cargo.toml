@@ -30,10 +30,20 @@ keel-crypto = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+# Every module a symbol is actually imported from needs its feature enabled, and the symbols
+# are spread wider than the original list assumed:
+#   Threading           SetProcessMitigationPolicy and the policy discriminants
+#   SystemServices      the PROCESS_MITIGATION_* structs those calls take
+#   ErrorReporting      WerRegisterExcludedMemoryBlock
+#   SystemInformation   GetSystemInfo / SYSTEM_INFO, for the page size
+# `Diagnostics_Debug` is gone: nothing is imported from it. Each location was checked against
+# the windows-sys source rather than guessed, because this cannot be compiled here.
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_System_ErrorReporting",
     "Win32_System_Memory",
-    "Win32_System_Diagnostics_Debug",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
     "Win32_System_Threading",
 ] }
 

@@ -95,10 +95,15 @@ pub fn deny_ptrace_attach() -> bool {
 pub fn apply_injection_mitigations() -> bool {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::System::Threading::{
-            ProcessExtensionPointDisablePolicy, ProcessImageLoadPolicy, SetProcessMitigationPolicy,
+        // Split across two modules, which is the whole reason this did not build: the
+        // function and the policy discriminants are in `Threading`, but the policy *structs*
+        // are in `SystemServices`. Importing all five from `Threading` resolved none of them.
+        use windows_sys::Win32::System::SystemServices::{
             PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY,
             PROCESS_MITIGATION_IMAGE_LOAD_POLICY,
+        };
+        use windows_sys::Win32::System::Threading::{
+            ProcessExtensionPointDisablePolicy, ProcessImageLoadPolicy, SetProcessMitigationPolicy,
         };
 
         let mut ok = true;
@@ -145,7 +150,9 @@ pub fn apply_injection_mitigations() -> bool {
 pub fn exclude_from_crash_dump(ptr: *const u8, len: usize) -> bool {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::System::Diagnostics::Debug::WerRegisterExcludedMemoryBlock;
+        // `ErrorReporting`, not `Diagnostics::Debug`. Windows Error Reporting is its own
+        // module; the debug module holds the debugger APIs.
+        use windows_sys::Win32::System::ErrorReporting::WerRegisterExcludedMemoryBlock;
         // SAFETY: the pointer and length describe a live allocation owned by the
         // caller for at least as long as the registration. The API only records
         // the range; it does not dereference it now.

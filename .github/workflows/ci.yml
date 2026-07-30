@@ -66,14 +66,18 @@ jobs:
         # stale-socket check that deleted regular files, because `connect` to a
         # non-socket returns ECONNREFUSED there and something else on macOS.
         #
-        # windows-2022 is deliberately absent. Keel does not compile on Windows:
-        # `keel-hardening` references windows-sys symbols that do not resolve
-        # (`WerRegisterExcludedMemoryBlock`, `Win32::System::SystemInformation`, two
-        # process-mitigation policy types), and the agent has no named-pipe transport —
-        # `docs/architecture.md` specifies it. A job that is red on every commit for a
-        # platform nobody claims to support is not a signal, it is noise that teaches
-        # people to ignore the matrix. It goes back in when the platform builds.
-        os: [ubuntu-latest, macos-14]
+        # windows-2022 is back, and it is a *compile* check rather than a claim of support.
+        # Keel does not run on Windows — the agent has no named-pipe transport, and
+        # `docs/architecture.md` specifies what has to be built. What this job is for is
+        # keeping the portable code healthy so that work is not preceded by clearing a
+        # pile of accumulated breakage. Most integration tests are `#![cfg(unix)]` and
+        # compile to nothing there, which is expected.
+        #
+        # It was removed for one commit because `keel-hardening` imported windows-sys
+        # symbols from the wrong modules. Those were corrected against the crate source;
+        # this job is how that correction gets verified, since none of it can be compiled
+        # on the machine Keel is developed on.
+        os: [ubuntu-latest, macos-14, windows-2022]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
