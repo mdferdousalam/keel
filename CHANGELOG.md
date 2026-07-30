@@ -37,9 +37,37 @@ whether an older Keel can still open your vault.
   libFuzzer dictionary. Seeding is essential here — the footer checksum means
   random mutation would otherwise never reach the parser.
 
+- `keel-store`: atomic write transaction (temp file, fsync, backup rotation,
+  rename, directory fsync), advisory locking via `std::fs::File::try_lock`, and
+  rollback detection that distinguishes a regression from a sync-conflict fork.
+  Crash safety is verified by SIGKILLing a real child process mid-write.
+- `keel-core`: vault lifecycle; the policy engine (scopes, grants, rate limits,
+  coverage cap, circuit breaker, agent-text sanitisation); a hash-chained
+  tamper-evident audit log; and the auto-lock state machine.
+
+### Changed
+- Dropped the `fd-lock` dependency in favour of `std::fs::File::try_lock`, stable
+  since Rust 1.89. The lock is tied to the file descriptor, so a crash cannot
+  leave a vault permanently locked. MSRV is now 1.89.
+- Header authentication split into two hashes. `binding_hash` (wide) authenticates
+  the wrapped master key and blocks a KDF downgrade; `identity_hash` (narrow)
+  authenticates the manifest and records. Previously records were bound to the KDF
+  salt and parameters, so changing the master passphrase invalidated the entire
+  vault — defeating the reason the design separates the two keys.
+- Vault layout is header, records, manifest, footer. Records precede the manifest
+  because the manifest stores record offsets that postcard varint-encodes, so its
+  length would otherwise depend on offsets that depend on its length.
+
 ### Security
 - Project rule recorded in `CONTRIBUTING.md`: no asymmetric primitive may enter
   the confidentiality path without a hybrid classical + post-quantum construction.
+- MCP `secret:reveal` is disabled by default. In the shipped configuration an AI
+  agent can act with secrets but cannot exfiltrate one even if fully compromised.
+- Rate limits are per client type. Applying agent limits to the desktop app capped
+  it at ten clipboard copies an hour, protecting nothing while breaking usability.
+- Failed unlock attempts back off exponentially but never lock a user out. A
+  destructive attempt counter is useless against an attacker holding the file, who
+  runs Argon2 offline, and catastrophic for the user who mistyped.
 - Size limits are now compile-time (`const`) assertions, so an inconsistent limit
   fails the build rather than waiting for a test run.
 - The format parser contains no panic paths: no indexing, no `unwrap`, and every

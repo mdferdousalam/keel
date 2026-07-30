@@ -18,6 +18,7 @@
         clippy::expect_used,
         clippy::panic,
         clippy::indexing_slicing,
+        clippy::integer_division,
         clippy::cast_possible_truncation
     )
 )]
@@ -28,7 +29,12 @@ pub mod error;
 pub mod policy;
 pub mod vault;
 
+pub use audit::{AuditEvent, AuditLog, AuditRecord, AuditReport, ChainIntegrity, Outcome};
+pub use autolock::{AutoLock, Event as LockEvent, LockPolicy, LockReason};
 pub use error::{Error, Result};
+pub use policy::{
+    Client, ClientType, Decision, Destination, EntryFilter, Grant, Operation, PolicyEngine, Scope,
+};
 pub use vault::{
     calibrate, tier_params, EntryDraft, OpenOptions, OpenReport, UnlockFactors, UnlockedVault,
 };
