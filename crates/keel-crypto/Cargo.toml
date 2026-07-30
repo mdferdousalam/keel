@@ -23,6 +23,3 @@ zeroize = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-hex = { workspace = true }
-hex-literal = { workspace = true }
-proptest = { workspace = true }

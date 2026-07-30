@@ -46,8 +46,19 @@ jobs:
       # `cargo audit` reads Cargo.lock only, so no system libraries and no workspace build.
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
+      # Not `--deny warnings`. That promotes `unmaintained` notices to failures, and this
+      # tree has fourteen of them — all from the Tauri desktop app's Linux backend, none a
+      # vulnerability, each already ignored in deny.toml with a written reason and a check
+      # that it is unreachable from the vault core.
+      #
+      # cargo-audit cannot read deny.toml, so `--deny warnings` here would mean maintaining
+      # the same exemption list in two files that cannot be kept in step. Instead this blocks
+      # on the things that are unambiguously problems — vulnerabilities are denied by default —
+      # and unmaintained and unsound findings stay the responsibility of the one config that
+      # documents why each is tolerated — deny.toml, where `cargo deny check advisories` reads
+      # them, in both this workflow and ci.yml.
       - name: Audit dependencies
-        run: cargo audit --deny warnings
+        run: cargo audit
 
   deny:
     name: cargo-deny (all checks)

@@ -28,6 +28,12 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
+# Unsoundness is a stronger claim than "unmaintained": it means a safe API can be made to
+# violate Rust's guarantees. Denied explicitly, because the default left it merely reported
+# and it went unnoticed until cargo-audit was asked about it separately.
+# "all" means flag unsound advisories anywhere in the graph, not just in workspace members.
+# A transitive dependency's unsoundness is still unsoundness in the binary that ships.
+unsound = "all"
 ignore = [
     # Add entries only with a written justification and an expiry.
     #
@@ -60,6 +66,13 @@ ignore = [
     # Reached through gtk3-macros, so it goes when GTK3 goes. A proc macro runs at build time
     # only and is not in any shipped binary.
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error via gtk3-macros; build-time only, GUI-only" },
+
+    # The one entry here that is not merely "unmaintained": an unsoundness in glib's
+    # `VariantStrIter` iterator impls. It arrives through the same GTK3 stack, `glib` is not
+    # reachable from the agent, the vault core, the CLI, the MCP server, or the browser bridge
+    # (checked with `cargo tree`), and there is nothing to upgrade to while Tauri targets GTK3.
+    # Kept separate from the block above so it is not mistaken for one of them.
+    { id = "RUSTSEC-2024-0429", reason = "glib VariantStrIter unsoundness via Tauri GTK3; GUI-only, no vault access" },
 
     # Tauri's own tooling uses the unic crates for identifier validation. Build-time, GUI-only.
     { id = "RUSTSEC-2025-0075", reason = "unic-char-range via Tauri tooling; GUI-only, no vault access" },
