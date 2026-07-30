@@ -29,7 +29,16 @@ whether an older Keel can still open your vault.
   spawn.
 - `keel-cli`: the `keel` command — init, unlock, lock, status, list, search, add, get,
   rotate, rm, generate, save — with `--json` on every read.
-- `docs/threat-model.md`, `docs/architecture.md`, and `docs/cli.md`.
+- `keel verify-release`: checks both the Ed25519 and the ML-DSA-65 signature over
+  `SHA256SUMS`, then every file's hash. Requires **both** signatures; refuses rather than
+  reporting success when no keys are compiled in.
+- `release.yml`: three-OS build with reproducibility flags, a double-build check that fails
+  the release if two builds of the same source differ, Sigstore build provenance, an SBOM,
+  and publication as a **draft** awaiting offline signatures.
+- `rebuild.yml`: anyone can rebuild any tag on a fork and compare against the published
+  artifacts. Also runs weekly, so a substitution after publication is noticed.
+- `docs/threat-model.md`, `docs/architecture.md`, `docs/cli.md`, `docs/VERIFY.md`, and
+  `docs/REPRODUCE.md`.
 - `SECURITY.md` with disclosure policy and an explicit out-of-scope list.
 
 - `keel-hardening`: the workspace's only `unsafe` crate. Core-dump suppression,

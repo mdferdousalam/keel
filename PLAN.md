@@ -12,7 +12,7 @@
 | 4 — Tauri desktop GUI | Not started | |
 | 5 — Browser extension + import | Not started | |
 | 6 — MCP server | Not started | Policy engine and protocol already support it |
-| 7 — Release pipeline | Not started | |
+| 7 — Release pipeline | **Mostly done** | Workflows, `verify-release`, VERIFY/REPRODUCE docs. Signing keys not yet generated; packaging configs (Homebrew/Scoop/AUR) not written. |
 
 **Currently working:** `keel init`, `unlock`, `lock`, `status`, `list`, `search`, `add`,
 `get`, `rotate`, `rm`, `generate`, `save`, with `--json` throughout. 326 unit tests plus

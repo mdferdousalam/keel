@@ -21,6 +21,12 @@ keel-proto = { path = "../keel-proto" }
 clap = { version = "4", features = ["derive", "wrap_help"] }
 rpassword = "7"
 serde_json = { workspace = true }
+# Release verification. Deliberately verify-only crates: this binary must be able to check
+# a signature and must never be able to produce one, since the signing keys live offline.
+minisign-verify = "0.2"
+fips204 = "0.4"
+sha2 = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -34,6 +34,8 @@
 use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 
+mod verify;
+
 use clap::{Parser, Subcommand};
 use keel_client::{Client, Error as ClientError};
 use keel_proto::{
@@ -179,6 +181,15 @@ enum Command {
 
     /// Save pending changes to disk.
     Save,
+
+    /// Verify the signatures and checksums of a downloaded release.
+    ///
+    /// Requires both the Ed25519 and the ML-DSA signature to pass. Needs no vault and no
+    /// agent.
+    VerifyRelease {
+        /// Directory containing the downloaded release files.
+        directory: std::path::PathBuf,
+    },
 }
 
 fn parse_field(value: &str) -> Result<Field, String> {
@@ -218,6 +229,12 @@ fn report(error: &ClientError) {
 }
 
 fn run(cli: &Cli) -> Result<(), ClientError> {
+    // Verification needs no vault and no agent: it checks bytes on disk. Connecting first
+    // would mean a user cannot check a download without starting a daemon.
+    if let Command::VerifyRelease { directory } = &cli.command {
+        return verify_release(directory, cli.json);
+    }
+
     let mut client = Client::connect(ClientKind::Cli, CLIENT_ID)?;
     match &cli.command {
         Command::Init { tier } => init(&mut client, tier, cli.json),
@@ -262,6 +279,34 @@ fn run(cli: &Cli) -> Result<(), ClientError> {
             emit(cli.json, "Saved.", &serde_json::json!({"saved": true}));
             Ok(())
         }
+        Command::VerifyRelease { .. } => unreachable!("handled before connecting"),
+    }
+}
+
+/// Check a downloaded release.
+fn verify_release(directory: &std::path::Path, json: bool) -> Result<(), ClientError> {
+    match verify::verify_release(directory) {
+        Ok(report) => {
+            if json {
+                print_json(&serde_json::json!({
+                    "trusted": report.is_trusted(),
+                    "ed25519": report.ed25519,
+                    "ml_dsa": report.ml_dsa,
+                    "files": report.files,
+                }));
+            } else {
+                println!("Both signatures verified (Ed25519 and ML-DSA-65).");
+                for file in &report.files {
+                    println!("  ok  {file}");
+                }
+                println!("{} files verified.", report.files.len());
+            }
+            Ok(())
+        }
+        Err(error) => Err(ClientError::Agent {
+            code: ErrorCode::BadRequest,
+            message: error.to_string(),
+        }),
     }
 }
 

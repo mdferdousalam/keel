@@ -1,0 +1,152 @@
+name: Independent rebuild
+
+# Anyone can run this on a fork against any tag, and it will report whether a rebuild from
+# source matches the published artifacts.
+#
+# This is the check that does not require trusting the maintainer at all. A signature says the
+# maintainer signed those bytes; a matching rebuild says the bytes correspond to the source
+# everyone can read. Enough independent confirmations make a substituted binary detectable by
+# anyone reading the repository, without their having to rebuild it themselves.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to verify, for example v1.0.0"
+        required: true
+        type: string
+  # Also runs on a schedule so a substitution after publication is noticed, not just one at
+  # release time.
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    name: Rebuild and compare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG:-}" ]; then
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            # Scheduled run: check the most recent release.
+            latest=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 1 --json tagName \
+              --jq '.[0].tagName // empty')
+            if [ -z "$latest" ]; then
+              echo "No releases to verify yet."
+              echo "tag=" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag=${latest}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Nothing to do
+        if: steps.tag.outputs.tag == ''
+        run: echo "::notice::No published releases; skipping."
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: steps.tag.outputs.tag != ''
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          # Full history: SOURCE_DATE_EPOCH comes from the commit date, so a shallow clone
+          # would produce a different — and legitimately non-matching — build.
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        if: steps.tag.outputs.tag != ''
+        with:
+          # Deliberately not pinned here: the checked-out rust-toolchain.toml decides, which is
+          # what a third party rebuilding an old tag needs.
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl tooling
+        if: steps.tag.outputs.tag != ''
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Rebuild
+        if: steps.tag.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export TZ=UTC
+          export LC_ALL=C
+          export RUSTFLAGS="--remap-path-prefix=$PWD=/build --remap-path-prefix=$HOME/.cargo=/cargo"
+          cargo build --locked --profile release-repro \
+            --target x86_64-unknown-linux-musl -p keel-cli -p keel-agent
+
+          # Repackage exactly as release.yml does, or the archive hash will differ for reasons
+          # that have nothing to do with the binaries.
+          version="${{ steps.tag.outputs.tag }}"
+          version="${version#v}"
+          target="x86_64-unknown-linux-musl"
+          mkdir -p rebuilt
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+              --mtime="@${SOURCE_DATE_EPOCH}" \
+              -czf "rebuilt/keel-${version}-${target}.tar.gz" \
+              -C "target/${target}/release-repro" keel keel-agent
+          (cd rebuilt && sha256sum ./*) > rebuilt/SHA256SUMS.local
+          cat rebuilt/SHA256SUMS.local
+
+      - name: Download the published release
+        if: steps.tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p published
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir published \
+            --pattern '*x86_64-unknown-linux-musl*' \
+            --pattern 'SHA256SUMS'
+
+      - name: Compare
+        if: steps.tag.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          target="x86_64-unknown-linux-musl"
+          mismatch=0
+
+          for archive in rebuilt/*.tar.gz; do
+            name="$(basename "$archive")"
+            ours="$(sha256sum "$archive" | cut -d' ' -f1)"
+            theirs="$(grep -F " ${name}" published/SHA256SUMS | cut -d' ' -f1 || true)"
+
+            if [ -z "$theirs" ]; then
+              echo "::warning::${name} is not listed in the published SHA256SUMS"
+              continue
+            fi
+            if [ "$ours" = "$theirs" ]; then
+              echo "MATCH    ${name}"
+              echo "         ${ours}"
+            else
+              mismatch=1
+              echo "::error::MISMATCH for ${name}"
+              echo "  rebuilt:   ${ours}"
+              echo "  published: ${theirs}"
+            fi
+          done
+
+          if [ "$mismatch" -ne 0 ]; then
+            cat <<'MSG'
+          ::error::A rebuild from source does not match the published artifact.
+
+          This is either a reproducibility bug or a substituted binary, and both are urgent.
+          Please open a public issue with this log. Public is correct here: if a published
+          binary does not match its source, every user needs to know quickly, and there is
+          nothing to coordinate — the attacker already knows.
+          MSG
+            exit 1
+          fi
+
+          echo "Reproducible: the rebuild matches the published ${target} artifact."

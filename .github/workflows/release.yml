@@ -1,0 +1,317 @@
+name: Release
+
+# The trust model this workflow implements:
+#
+#   A compromise of this repository or of GitHub Actions must not be able to produce a
+#   release that users accept.
+#
+# So the signing keys never enter CI. This workflow builds artifacts, computes checksums,
+# and requests Sigstore-backed build provenance — all of which a compromised pipeline could
+# also do. What it cannot do is sign SHA256SUMS with the maintainer's offline Ed25519 and
+# ML-DSA keys. `keel verify-release` requires both of those signatures, so an attacker who
+# owns this pipeline produces an *unsigned* release that the verifier rejects.
+#
+# The release is therefore published as a **draft**. A human downloads the artifacts, signs
+# the checksum manifest on an offline machine, uploads the two signatures, and publishes.
+# That manual step is not friction to be optimised away; it is the entire security property.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate: never build a release that would not pass CI.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: 1.93.1
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      # The architectural gates are release blockers, not advisory.
+      - run: cargo xtask check
+
+  # ---------------------------------------------------------------------------
+  # Build. Every flag here exists to make the output depend only on the source.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.target }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # musl: statically linked and the most reproducible artifact in the set. This is
+          # the target the rebuild workflow compares against.
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            reproducible: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            reproducible: true
+          - target: aarch64-apple-darwin
+            os: macos-14
+            reproducible: false
+          - target: x86_64-apple-darwin
+            os: macos-14
+            reproducible: false
+          # The GNU toolchain is used for the reproducibility reference on Windows: MSVC
+          # embeds timestamps and non-deterministic PDB signatures.
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            reproducible: true
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: 1.93.1
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu gcc-mingw-w64-x86-64
+
+      - name: Record the source date
+        id: source_date
+        run: echo "epoch=$(git log -1 --pretty=%ct)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          # Every one of these removes a source of nondeterminism:
+          #   SOURCE_DATE_EPOCH  - timestamps embedded by build tooling
+          #   remap-path-prefix  - the absolute path of the build directory
+          #   TZ / LC_ALL        - locale-dependent formatting
+          SOURCE_DATE_EPOCH: ${{ steps.source_date.outputs.epoch }}
+          RUSTFLAGS: >-
+            --remap-path-prefix=${{ github.workspace }}=/build
+            --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo
+          TZ: UTC
+          LC_ALL: C
+        run: |
+          cargo build --locked --profile release-repro --target ${{ matrix.target }} \
+            -p keel-cli -p keel-agent
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          version="${GITHUB_REF_NAME#v}"
+          outdir="dist"
+          mkdir -p "$outdir"
+          bindir="target/${target}/release-repro"
+
+          if [[ "$target" == *windows* ]]; then
+            name="keel-${version}-${target}.zip"
+            (cd "$bindir" && zip -X -q "../../../${outdir}/${name}" keel.exe keel-agent.exe)
+          else
+            name="keel-${version}-${target}.tar.gz"
+            # Fixed ownership, sorted names, and a pinned mtime: tar metadata is otherwise a
+            # rich source of build-to-build differences.
+            tar --sort=name \
+                --owner=0 --group=0 --numeric-owner \
+                --mtime="@${SOURCE_DATE_EPOCH:-0}" \
+                -czf "${outdir}/${name}" \
+                -C "$bindir" keel keel-agent
+          fi
+          echo "artifact=${name}" >> "$GITHUB_OUTPUT"
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.source_date.outputs.epoch }}
+
+      # macOS: ad-hoc signing only. There is no paid Apple Developer ID, so the app cannot be
+      # notarized. Ad-hoc signing is still mandatory, not optional: an unsigned arm64 binary
+      # will not execute at all on Apple Silicon.
+      #
+      # The unsigned hash is published alongside, because `codesign` embeds a timestamp and so
+      # a signed artifact is not reproducible. See docs/REPRODUCE.md.
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          bindir="target/${{ matrix.target }}/release-repro"
+          for binary in keel keel-agent; do
+            shasum -a 256 "${bindir}/${binary}" \
+              | sed "s|${bindir}/|unsigned:|" >> dist/UNSIGNED-HASHES
+            codesign --force --sign - --options runtime "${bindir}/${binary}"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Reproducibility check: build the deterministic targets twice, in independent
+  # jobs, and require the hashes to match.
+  #
+  # Claiming reproducibility without testing it is how projects discover, from a
+  # user, that their builds have not been reproducible for a year.
+  # ---------------------------------------------------------------------------
+  reproducibility:
+    name: Double-build check
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        attempt: [1, 2]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb2c1747b47c1c752e7d1a # master
+        with:
+          toolchain: 1.93.1
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - id: source_date
+        run: echo "epoch=$(git log -1 --pretty=%ct)" >> "$GITHUB_OUTPUT"
+      - name: Build
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.source_date.outputs.epoch }}
+          RUSTFLAGS: >-
+            --remap-path-prefix=${{ github.workspace }}=/build
+            --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo
+          TZ: UTC
+          LC_ALL: C
+        run: |
+          cargo build --locked --profile release-repro \
+            --target x86_64-unknown-linux-musl -p keel-cli -p keel-agent
+      - name: Hash
+        run: |
+          sha256sum target/x86_64-unknown-linux-musl/release-repro/keel \
+                    target/x86_64-unknown-linux-musl/release-repro/keel-agent \
+            | sed 's|target/.*/||' > hashes-${{ matrix.attempt }}.txt
+          cat hashes-${{ matrix.attempt }}.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: repro-hashes-${{ matrix.attempt }}
+          path: hashes-${{ matrix.attempt }}.txt
+
+  compare-builds:
+    name: Compare the two builds
+    needs: reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: repro-hashes-*
+          merge-multiple: false
+      - name: Require identical output
+        run: |
+          set -euo pipefail
+          if diff -u repro-hashes-1/hashes-1.txt repro-hashes-2/hashes-2.txt; then
+            echo "Reproducible: two independent builds produced identical binaries."
+          else
+            echo "::error::Two builds of the same source produced different binaries."
+            echo "The reproducibility claim in docs/REPRODUCE.md is not currently true."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Publish a DRAFT. Signing happens offline; see the header comment.
+  # ---------------------------------------------------------------------------
+  draft:
+    name: Draft release
+    needs: [build, compare-builds]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      # Sigstore-backed provenance. Supplementary evidence, not the trust root: a compromised
+      # pipeline can also produce this. Its value is that it lands in a public transparency
+      # log, so a targeted backdoor cannot reach one user without a public record.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: dist-*
+          path: staging
+          merge-multiple: true
+
+      - name: Build the checksum manifest
+        run: |
+          set -euo pipefail
+          cd staging
+          # Sorted, so the manifest is itself deterministic and a diff between releases is
+          # readable.
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n' \
+            | LC_ALL=C sort \
+            | xargs sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: "staging/*"
+
+      - name: Generate an SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx --format json --all
+          find . -name '*.cdx.json' -exec cp {} staging/ \;
+
+      - name: Publish as a draft awaiting offline signatures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cat > NOTES.md <<'EOF'
+          ## Verifying this release
+
+          This release is **not yet signed** and should not be trusted until it is.
+
+          Keel requires two signatures over `SHA256SUMS`, made with keys that never enter
+          CI: `SHA256SUMS.minisig` (Ed25519) and `SHA256SUMS.mldsa.sig` (ML-DSA-65). Once
+          both are attached:
+
+              keel verify-release ./downloaded-release/
+
+          Both signatures must pass. See `docs/VERIFY.md`.
+
+          ## Notes on platform trust
+
+          Keel is distributed without paid code-signing certificates, so macOS and Windows
+          will warn about downloaded installers. Install via Homebrew, Scoop, or your Linux
+          package manager to avoid that, and see `docs/install.md` for why reproducible
+          builds plus offline signatures are a stronger integrity guarantee than a purchased
+          certificate.
+
+          Linux `musl` artifacts are byte-for-byte reproducible; anyone can rebuild them and
+          compare. macOS artifacts are not, because `codesign` embeds a timestamp — the hash
+          of the unsigned binary is published in `UNSIGNED-HASHES` instead. See
+          `docs/REPRODUCE.md`.
+          EOF
+
+          gh release create "$TAG" \
+            --draft \
+            --title "Keel $TAG" \
+            --notes-file NOTES.md \
+            staging/*
+
+          echo "::notice::Draft created. Sign SHA256SUMS offline, attach both signatures, then publish."
