@@ -465,6 +465,56 @@ pub struct AuditAnchor {
     pub tip: [u8; 32],
 }
 
+/// The manifest layout before `audit_anchor` existed.
+///
+/// Kept so a vault written by an earlier build still opens. It is deliberately a separate
+/// struct rather than an `Option`-with-default trick: postcard encodes an `Option` as a
+/// discriminant byte, so a missing trailing field is not the same as a `None` on the wire,
+/// and pretending otherwise would misparse rather than fail.
+///
+/// This is the pattern every future schema bump should follow — read old, write new — and
+/// the reason `MANIFEST_SCHEMA` exists as a number rather than a flag.
+#[derive(Serialize, Deserialize)]
+struct ManifestV1 {
+    schema: u16,
+    entries: Vec<EntryMeta>,
+    folders: Vec<Folder>,
+    trash: Vec<TrashedEntry>,
+    settings: VaultSettings,
+    paired_clients: Vec<PairedClient>,
+    grants: Vec<PersistedGrant>,
+    free_space: Vec<(u64, u64)>,
+}
+
+impl ManifestV1 {
+    fn decode(unpadded: &[u8]) -> Result<Self> {
+        postcard::from_bytes(unpadded)
+            .map_err(|_| Error::Malformed("manifest could not be deserialized"))
+    }
+
+    /// Carry a schema-1 manifest forward.
+    ///
+    /// The schema number is left as it was found. The next save writes
+    /// [`MANIFEST_SCHEMA`], so the upgrade happens when the vault is next written rather
+    /// than on read — which keeps opening a vault a read-only operation, and means a user
+    /// who merely looked at an old vault has not silently changed it.
+    fn upgrade(self) -> Manifest {
+        Manifest {
+            schema: self.schema,
+            entries: self.entries,
+            folders: self.folders,
+            trash: self.trash,
+            settings: self.settings,
+            paired_clients: self.paired_clients,
+            grants: self.grants,
+            free_space: self.free_space,
+            // No anchor: the old vault never committed to an audit-log length, and
+            // inventing one would fabricate evidence about a log it never saw.
+            audit_anchor: None,
+        }
+    }
+}
+
 impl Default for Manifest {
     fn default() -> Self {
         Self {
@@ -495,8 +545,15 @@ impl Manifest {
     }
 
     /// Serialize and pad, ready to be encrypted.
-    pub fn encode_padded(&self) -> Result<Vec<u8>> {
+    pub fn encode_padded(&mut self) -> Result<Vec<u8>> {
         self.validate()?;
+        // Writing always stamps the current schema. A manifest read from an older vault
+        // keeps its original number until this point, so opening a vault stays a read-only
+        // operation — but the bytes about to be written are the *current* layout, and
+        // labelling them with the old number would leave a file whose declared schema does
+        // not match its shape. That also implements the plan's rule that a save never
+        // writes an older version than the code understands.
+        self.schema = MANIFEST_SCHEMA;
         let encoded = postcard::to_allocvec(self)
             .map_err(|_| Error::Encode("manifest could not be serialized"))?;
         if encoded.len() > limits::MAX_MANIFEST_LEN {
@@ -508,8 +565,22 @@ impl Manifest {
     /// Unpad and deserialize an already-decrypted, already-authenticated manifest.
     pub fn decode_padded(plaintext: &[u8]) -> Result<Self> {
         let unpadded = padding::unpad(plaintext, MANIFEST_BLOCK)?;
-        let manifest: Self = postcard::from_bytes(unpadded)
-            .map_err(|_| Error::Malformed("manifest could not be deserialized"))?;
+        // Postcard is not self-describing, so a manifest written by an older version has a
+        // genuinely different byte layout — a reader cannot skip a field it does not know
+        // about, and cannot even find the `schema` field's meaning without committing to a
+        // layout first. So the only way to read an old manifest is to try each known layout.
+        //
+        // Newest first, then older ones in turn. The AEAD tag has already been verified by
+        // this point, so these bytes are authentic and the only question is which layout
+        // produced them; trying several is not an attack surface, merely a decode attempt
+        // that either matches or does not.
+        let manifest: Self = match postcard::from_bytes::<Self>(unpadded) {
+            Ok(manifest) => manifest,
+            // Schema 1 predates `audit_anchor`. Read it and carry the vault forward with no
+            // anchor, which is exactly right: the old vault never committed to an audit
+            // length, so claiming otherwise would invent evidence.
+            Err(_) => ManifestV1::decode(unpadded)?.upgrade(),
+        };
         if manifest.schema == 0 || manifest.schema > MANIFEST_SCHEMA {
             return Err(Error::Malformed(
                 "manifest uses an unsupported schema version",
@@ -646,15 +717,70 @@ mod tests {
     }
 
     #[test]
+    fn a_schema_1_manifest_still_opens() {
+        // The migration that matters. Anyone who built from source before `audit_anchor`
+        // existed has a vault in this layout, and a format change that silently refused to
+        // open it would look exactly like data loss.
+        //
+        // Built by serialising the real V1 struct, so the bytes are the old layout rather
+        // than an approximation of it.
+        let current = sample();
+        let v1 = ManifestV1 {
+            schema: 1,
+            entries: current.entries.clone(),
+            folders: current.folders.clone(),
+            trash: current.trash.clone(),
+            settings: current.settings,
+            paired_clients: current.paired_clients.clone(),
+            grants: current.grants.clone(),
+            free_space: current.free_space.clone(),
+        };
+        let encoded = postcard::to_allocvec(&v1).unwrap();
+        let padded = padding::pad(&encoded, MANIFEST_BLOCK).unwrap();
+
+        let decoded = Manifest::decode_padded(&padded).expect("a schema-1 manifest must open");
+        assert_eq!(decoded.entries, current.entries);
+        assert_eq!(decoded.settings, current.settings);
+        // No anchor, because the old vault never committed to an audit-log length.
+        // Inventing one would fabricate evidence about a log it never saw.
+        assert_eq!(decoded.audit_anchor, None);
+        // The schema is left as found: opening a vault stays read-only.
+        assert_eq!(decoded.schema, 1);
+    }
+
+    #[test]
+    fn reading_old_then_saving_writes_the_current_layout() {
+        let current = sample();
+        let v1 = ManifestV1 {
+            schema: 1,
+            entries: current.entries.clone(),
+            folders: current.folders.clone(),
+            trash: current.trash.clone(),
+            settings: current.settings,
+            paired_clients: current.paired_clients.clone(),
+            grants: current.grants.clone(),
+            free_space: current.free_space.clone(),
+        };
+        let padded = padding::pad(&postcard::to_allocvec(&v1).unwrap(), MANIFEST_BLOCK).unwrap();
+        let mut migrated = Manifest::decode_padded(&padded).unwrap();
+
+        let rewritten = migrated.encode_padded().unwrap();
+        assert_eq!(migrated.schema, MANIFEST_SCHEMA);
+        let reread = Manifest::decode_padded(&rewritten).unwrap();
+        assert_eq!(reread.schema, MANIFEST_SCHEMA);
+        assert_eq!(reread.entries, current.entries);
+    }
+
+    #[test]
     fn round_trips() {
-        let m = sample();
+        let mut m = sample();
         let encoded = m.encode_padded().unwrap();
         assert_eq!(Manifest::decode_padded(&encoded).unwrap(), m);
     }
 
     #[test]
     fn empty_manifest_round_trips() {
-        let m = Manifest::new();
+        let mut m = Manifest::new();
         let encoded = m.encode_padded().unwrap();
         assert_eq!(Manifest::decode_padded(&encoded).unwrap(), m);
     }
@@ -663,6 +789,17 @@ mod tests {
     fn encoded_manifest_is_padded_to_the_manifest_block() {
         let encoded = sample().encode_padded().unwrap();
         assert_eq!(encoded.len() % MANIFEST_BLOCK, 0);
+        // A save always writes the current layout, whatever the manifest was read as.
+        let mut old = sample();
+        old.schema = 1;
+        let bytes = old.encode_padded().unwrap();
+        assert_eq!(
+            old.schema, MANIFEST_SCHEMA,
+            "a save must upgrade the schema"
+        );
+        let unpadded = padding::unpad(&bytes, MANIFEST_BLOCK).unwrap();
+        let round_tripped: Manifest = postcard::from_bytes(unpadded).unwrap();
+        assert_eq!(round_tripped.schema, MANIFEST_SCHEMA);
     }
 
     #[test]

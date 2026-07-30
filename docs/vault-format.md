@@ -183,7 +183,34 @@ decrypts exactly one record.
 The manifest holds, per entry: record id, key epoch, blob hash, blob offset, blob
 length, title, username, origins, tags, folder, timestamps, and whether a TOTP secret
 exists. It also holds folders, trashed entries, vault settings, paired clients,
-persisted grants, and free-space ranges.
+persisted grants, free-space ranges, and the audit anchor.
+
+`schema` is the manifest's own version, currently **2**. It is bumped when the
+`Manifest` struct changes shape, because postcard is not self-describing: a reader
+cannot skip a field it does not know about, so old and new layouts are not
+interchangeable. Version 2 added `audit_anchor`.
+
+### The audit anchor
+
+`audit_anchor: Option<{ seq: u64, tip: [u8; 32] }>` records how far the audit log had
+reached when the vault was last saved.
+
+It lives here, rather than in the audit log itself, because it has to be somewhere an
+attacker cannot edit without also being able to forge the manifest — and the manifest is
+sealed under `index_key`. Anyone who can rewrite this can already rewrite the vault, at
+which point the audit log is the least of the problems.
+
+The reason it is needed at all: a hash chain makes editing or removing a record in the
+*middle* of the log detectable, but records `1..k` form a valid chain for **any** `k`, so
+deleting the most recent records leaves a log that verifies perfectly. A rebuilt tail is
+also a valid chain, which is why the anchor commits to the chain `tip` and not only to
+`seq`.
+
+It is refreshed on save and commits only to records already flushed at that moment, so it
+is a **floor** rather than an exact count: records appended after the last save can still
+be removed without detection. See
+[the threat model](threat-model.md#what-the-audit-log-does-and-does-not-prove) for what
+that does and does not buy.
 
 `blob_hash` is BLAKE3-256 of the **entire** record blob — id, epoch, nonce, ciphertext,
 and tag — not just the ciphertext, so tampering with a record's declared id or epoch is

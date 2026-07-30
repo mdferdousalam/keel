@@ -60,6 +60,13 @@ pub enum TransportError {
     /// The peer closed the connection.
     #[error("the peer closed the connection")]
     Closed,
+    /// Another agent is already listening on this socket.
+    ///
+    /// Distinct from an I/O error because it is not a failure to report as a fault: the
+    /// system is in the state the user wants, and a second agent starting would be the
+    /// problem. Clients treat it as "connect to the one that is already there".
+    #[error("an agent is already running on {0}")]
+    AlreadyRunning(std::path::PathBuf),
     /// This platform is not supported yet.
     #[error("{0}")]
     Unsupported(&'static str),
@@ -260,8 +267,36 @@ impl Listener {
             std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
                 .map_err(|e| TransportError::io("restricting the socket directory", e))?;
         }
+        // A socket file left over from a previous agent must be removed before binding, but
+        // removing one that a *live* agent is listening on would hijack it: the running
+        // agent keeps its open file descriptor and its keys, while every new client reaches
+        // this process instead. Two agents on one vault, one of them orphaned and invisible.
+        //
+        // So the file is probed rather than assumed dead. Connecting is the only reliable
+        // test — the file's existence says nothing, and a pid file would be its own stale
+        // state to manage.
         if path.exists() {
-            let _ = std::fs::remove_file(path);
+            match std::os::unix::net::UnixStream::connect(path) {
+                // Somebody answered, so an agent is already serving this socket.
+                Ok(_) => {
+                    return Err(TransportError::AlreadyRunning(path.to_path_buf()));
+                }
+                // Nothing listening: the previous agent died without cleaning up, which is
+                // what happens on SIGKILL, an OOM kill, or a power failure. Safe to clear.
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+                    std::fs::remove_file(path)
+                        .map_err(|e| TransportError::io("removing a stale agent socket", e))?;
+                }
+                // Anything else — a permission error, or something that is not a socket at
+                // all — is not ours to delete. Refusing beats destroying a file we do not
+                // understand.
+                Err(e) => {
+                    return Err(TransportError::io(
+                        "checking whether an agent already holds the socket",
+                        e,
+                    ));
+                }
+            }
         }
 
         let inner = std::os::unix::net::UnixListener::bind(path)
@@ -435,15 +470,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_stale_socket_file_does_not_prevent_binding() {
-        // A crashed agent leaves its socket behind; the next start must not be blocked.
-        let (_dir, path) = temp_socket();
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"stale").unwrap();
-        let listener = Listener::bind(&path).unwrap();
-        assert_eq!(listener.path(), path.as_path());
-    }
+    // The test that used to sit here simulated a crashed agent's leftover socket by
+    // writing a plain file containing "stale", which is not a socket — so it never
+    // exercised the case it named, and its assertion (bind over whatever is at the path)
+    // is one that permits data loss, since `KEEL_AGENT_SOCKET` is user-settable and a typo
+    // could aim it at a real file. It is superseded by
+    // `binding_clears_a_socket_left_by_a_dead_agent`, which uses an actual socket, and by
+    // `binding_refuses_a_path_that_is_not_a_socket`.
 
     #[test]
     fn dropping_the_listener_removes_the_socket() {
@@ -538,5 +571,70 @@ mod tests {
             Some(v) => std::env::set_var(SOCKET_ENV, v),
             None => std::env::remove_var(SOCKET_ENV),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binding_clears_a_socket_left_by_a_dead_agent() {
+        // What a SIGKILL, an OOM kill, or a power failure leaves behind: a socket file with
+        // nothing listening. Refusing to start in that state would strand the user, since
+        // there is no live agent to connect to either.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("agent.sock");
+
+        // Bind and drop, which leaves the file: dropping a `UnixListener` closes the fd but
+        // does not unlink the path.
+        {
+            let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
+            drop(listener);
+        }
+        assert!(
+            path.exists(),
+            "the socket file should have been left behind"
+        );
+
+        let listener = Listener::bind(&path).expect("a stale socket must not block startup");
+        assert_eq!(listener.path(), path.as_path());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binding_refuses_to_hijack_a_live_agents_socket() {
+        // The dangerous case, and the reason the stale check probes rather than assumes.
+        // Unlinking a socket a live agent is serving does not stop that agent: it keeps its
+        // open descriptor and its keys, while every new client reaches the second process
+        // instead. Two agents on one vault, one of them orphaned and invisible to the user.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("agent.sock");
+        let live = Listener::bind(&path).expect("the first bind should succeed");
+
+        let error = Listener::bind(&path).expect_err("the second bind must be refused");
+        assert!(
+            matches!(error, TransportError::AlreadyRunning(_)),
+            "expected AlreadyRunning, got {error:?}"
+        );
+        // The original must still be usable — in particular, still bound to its path.
+        assert_eq!(live.path(), path.as_path());
+        assert!(path.exists(), "the live socket must not have been removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binding_refuses_a_path_that_is_not_a_socket() {
+        // A regular file at the socket path is not ours to delete. It could be anything —
+        // including something the user cares about — and guessing wrong destroys data.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("agent.sock");
+        std::fs::write(&path, b"not a socket").expect("write a decoy file");
+
+        let error = Listener::bind(&path).expect_err("a plain file must not be bound over");
+        assert!(
+            !matches!(error, TransportError::AlreadyRunning(_)),
+            "a plain file is not a running agent"
+        );
+        assert!(
+            path.exists(),
+            "an unrecognised file must be left alone, not deleted"
+        );
     }
 }

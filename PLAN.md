@@ -60,12 +60,32 @@ Bugs that the plan did not anticipate and that only appeared under test:
    rate. The hazard was documented in a neighbouring test and not applied.
 5. **The audit log was created 0644** by umask. Encrypted, so no content leaked, but its
    size tracks how many operations the user performed.
-6. **`audit_tail` is not exposed as an MCP tool**, though §7.2 contemplated it under an
+6. **A killed agent stranded the user.** `wait_for_socket` waited for the socket file to
+   *exist*, which a socket left behind by a SIGKILL satisfies instantly — so the client
+   spawned an agent, declared the socket ready, connected, and was refused. Every `keel`
+   command then failed until the user worked out they had to delete a file in a directory
+   they had never heard of. Now it waits until it can actually connect.
+7. **A second agent could hijack a running agent's socket.** `Listener::bind` unlinked any
+   existing socket file unconditionally. Unlinking a live agent's socket does not stop that
+   agent — it keeps its descriptor and its keys — while every new client reaches the second
+   process, leaving two agents on one vault with the first orphaned and invisible. Bind now
+   probes by connecting: an answer means refuse, a refused connection means stale and safe
+   to clear, and anything else (including a plain file) is left alone, since
+   `KEEL_AGENT_SOCKET` is user-settable and a typo should not delete a real file. The
+   pre-existing test for this simulated a stale socket with a plain file containing
+   "stale", so it never exercised the case it named.
+8. **The schema bump needed a migration.** The plan called for "reads old / writes new" and
+   the first implementation just bumped the number, which would have refused to open any
+   vault built before the change. Fixed with a `ManifestV1` struct and a decode fallback,
+   verified by building the previous commit in a worktree, creating a vault with it, and
+   opening it with current code — passwords intact, and intact again after the upgrade is
+   written.
+9. **`audit_tail` is not exposed as an MCP tool**, though §7.2 contemplated it under an
    `audit:read` scope. Open decision rather than an oversight: the log reveals which entries
    were touched and when, which is a usage pattern worth thinking about before handing it to
    an agent, and `keel log` now covers the user's own need. The rogue-agent test deliberately
    does not assert either way.
-7. **The exhaustive `match` on `Response` in keel-mcp caught three omissions** as response
+10. **The exhaustive `match` on `Response` in keel-mcp caught three omissions** as response
    variants were added, each time forcing a deliberate decision about whether an agent
    should see the new data. Worth preserving as a design property rather than adding a
    catch-all arm.

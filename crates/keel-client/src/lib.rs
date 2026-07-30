@@ -325,6 +325,24 @@ fn agent_binary() -> PathBuf {
     PathBuf::from("keel-agent")
 }
 
+/// Whether something is actually listening at `path`.
+///
+/// A successful connect is closed immediately; the agent tolerates a peer that hangs up
+/// before saying anything, since that is also what a port scanner or a crashed client does.
+#[cfg(unix)]
+fn can_connect(path: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
+#[cfg(not(unix))]
+fn can_connect(path: &Path) -> bool {
+    // No named-pipe transport yet, so there is nothing to connect to. Falling back to
+    // existence would reintroduce the stale-socket bug on the platform least able to
+    // diagnose it.
+    let _ = path;
+    false
+}
+
 /// Wait for a spawned agent's socket to appear.
 ///
 /// Polls rather than failing immediately: the first command of a session pays for the
@@ -333,10 +351,12 @@ fn agent_binary() -> PathBuf {
 fn wait_for_socket(path: &Path) -> Result<()> {
     let deadline = Instant::now() + SPAWN_TIMEOUT;
     while Instant::now() < deadline {
-        if path.exists() {
-            // Give the listener a moment to actually accept, so the connect that follows
-            // does not race the bind.
-            std::thread::sleep(Duration::from_millis(20));
+        // Waiting for the file to *exist* is not enough, and getting that wrong produced a
+        // bug worth remembering: after an agent is killed its socket file remains, so
+        // `exists()` returned true instantly, the connect that followed was refused, and
+        // every command failed until the user deleted the file by hand. Connecting is the
+        // only check that distinguishes a live listener from a leftover inode.
+        if can_connect(path) {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(25));

@@ -843,3 +843,40 @@ fn an_ai_agent_cannot_export_or_audit_whatever_it_has_been_granted() {
     fixture.ok(&["audit"]);
     fixture.ok(&["export", "--yes"]);
 }
+
+#[test]
+fn a_killed_agent_does_not_strand_the_user() {
+    // What a crash, an OOM kill, or a power failure leaves: a socket file with nothing
+    // listening. The bug this pins was that `wait_for_socket` waited for the file to
+    // *exist*, which a stale socket satisfies instantly — so the client spawned an agent,
+    // immediately declared the socket ready, connected, and was refused. Every `keel`
+    // command then failed until the user worked out that they had to delete a file in a
+    // directory they had never heard of.
+    let fixture = Fixture::new();
+    fixture.init();
+    fixture.ok(&["add", "Bank", "--username", "ada"]);
+
+    // Kill the agent outright, so it has no chance to clean up after itself.
+    let killed = std::process::Command::new("pkill")
+        .args(["-9", "-f", "keel-agent"])
+        .status();
+    assert!(killed.is_ok(), "pkill should be available");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    assert!(
+        fixture.socket.exists(),
+        "the point of this test is a socket left behind; if it is gone, the setup is wrong"
+    );
+
+    // The next command must recover on its own.
+    let status = fixture.ok(&["status"]);
+    assert!(
+        status.contains("Locked") || status.contains("Unlocked"),
+        "a stale socket must not strand the user: {status}"
+    );
+
+    // And the vault must still be intact and usable.
+    fixture.ok(&["unlock"]);
+    let list = fixture.ok(&["list"]);
+    assert!(list.contains("Bank"), "the vault should be intact: {list}");
+}
