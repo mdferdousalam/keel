@@ -977,7 +977,15 @@ fn setup_browser(extension_id: Option<&str>, dry_run: bool, json: bool) -> Resul
     }
 
     if written.is_empty() {
-        println!("No supported browser configuration directories were found on this machine.");
+        if cfg!(not(unix)) {
+            println!(
+                "Registering the browser bridge on Windows means writing a registry value \
+                 under\nHKCU\\Software\\<browser>\\NativeMessagingHosts, which Keel does not \
+                 do yet.\nWindows support is unfinished — see docs/architecture.md."
+            );
+        } else {
+            println!("No supported browser configuration directories were found on this machine.");
+        }
     } else {
         println!(
             "{} the browser bridge for:",
@@ -1017,53 +1025,67 @@ fn native_host_targets<'a>(
     chromium: &'a serde_json::Value,
     firefox: &'a serde_json::Value,
 ) -> Vec<(&'static str, std::path::PathBuf, &'a serde_json::Value)> {
-    let home = match std::env::var_os("HOME").map(std::path::PathBuf::from) {
-        Some(home) => home,
-        None => return Vec::new(),
-    };
-    let mut out: Vec<(&'static str, std::path::PathBuf, &serde_json::Value)> = Vec::new();
-
-    #[cfg(target_os = "macos")]
+    // Windows registers native-messaging hosts through the registry — a value under
+    // `HKCU\Software\Google\Chrome\NativeMessagingHosts\<name>` pointing at a manifest —
+    // not by dropping a file in a known directory. That is a different mechanism, not a
+    // different path, so there is nothing to return here rather than something almost right.
+    // It is unwritten along with the rest of Windows support; `setup-browser` says so.
+    #[cfg(not(unix))]
     {
-        let support = home.join("Library/Application Support");
-        for (browser, base) in [
-            ("Chrome", support.join("Google/Chrome")),
-            ("Edge", support.join("Microsoft Edge")),
-            ("Brave", support.join("BraveSoftware/Brave-Browser")),
-            ("Chromium", support.join("Chromium")),
-            ("Vivaldi", support.join("Vivaldi")),
-        ] {
-            out.push((browser, base.join("NativeMessagingHosts"), chromium));
-        }
-        out.push((
-            "Firefox",
-            support.join("Mozilla/NativeMessagingHosts"),
-            firefox,
-        ));
+        let _ = (chromium, firefox);
+        return Vec::new();
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(unix)]
     {
-        let config = std::env::var_os("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| home.join(".config"));
-        for (browser, base) in [
-            ("Chrome", config.join("google-chrome")),
-            ("Edge", config.join("microsoft-edge")),
-            ("Brave", config.join("BraveSoftware/Brave-Browser")),
-            ("Chromium", config.join("chromium")),
-            ("Vivaldi", config.join("vivaldi")),
-        ] {
-            out.push((browser, base.join("NativeMessagingHosts"), chromium));
-        }
-        out.push((
-            "Firefox",
-            home.join(".mozilla/native-messaging-hosts"),
-            firefox,
-        ));
-    }
+        let home = match std::env::var_os("HOME").map(std::path::PathBuf::from) {
+            Some(home) => home,
+            None => return Vec::new(),
+        };
+        let mut out: Vec<(&'static str, std::path::PathBuf, &serde_json::Value)> = Vec::new();
 
-    out
+        #[cfg(target_os = "macos")]
+        {
+            let support = home.join("Library/Application Support");
+            for (browser, base) in [
+                ("Chrome", support.join("Google/Chrome")),
+                ("Edge", support.join("Microsoft Edge")),
+                ("Brave", support.join("BraveSoftware/Brave-Browser")),
+                ("Chromium", support.join("Chromium")),
+                ("Vivaldi", support.join("Vivaldi")),
+            ] {
+                out.push((browser, base.join("NativeMessagingHosts"), chromium));
+            }
+            out.push((
+                "Firefox",
+                support.join("Mozilla/NativeMessagingHosts"),
+                firefox,
+            ));
+        }
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            let config = std::env::var_os("XDG_CONFIG_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| home.join(".config"));
+            for (browser, base) in [
+                ("Chrome", config.join("google-chrome")),
+                ("Edge", config.join("microsoft-edge")),
+                ("Brave", config.join("BraveSoftware/Brave-Browser")),
+                ("Chromium", config.join("chromium")),
+                ("Vivaldi", config.join("vivaldi")),
+            ] {
+                out.push((browser, base.join("NativeMessagingHosts"), chromium));
+            }
+            out.push((
+                "Firefox",
+                home.join(".mozilla/native-messaging-hosts"),
+                firefox,
+            ));
+        }
+
+        out
+    }
 }
 
 /// Show or change settings.
