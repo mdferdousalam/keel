@@ -64,7 +64,7 @@ argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
 # directly rather than the crate's helper, so its RNG feature stays off.
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 hkdf = "0.12.4"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 blake3 = "1.8"
 subtle = "2.6"
 getrandom = "0.2"
