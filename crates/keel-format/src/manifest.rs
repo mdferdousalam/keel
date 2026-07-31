@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The vault manifest: encrypted metadata for every entry.
 //!
 //! The manifest is the only section decrypted at unlock. It holds titles,

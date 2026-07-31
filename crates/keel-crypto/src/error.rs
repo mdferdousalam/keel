@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Error types.
 //!
 //! Every variant here is deliberately coarse. Error messages are user- and

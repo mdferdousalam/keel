@@ -10,7 +10,7 @@ pkgrel=1
 pkgdesc="Local-first password manager with no server, no account, and no telemetry"
 arch=('x86_64' 'aarch64')
 url="https://github.com/mdferdousalam/keel"
-license=('GPL-3.0-or-later')
+license=('AGPL-3.0-or-later')
 # No runtime dependencies beyond libc. Keel links no HTTP or TLS stack, and
 # `cargo xtask check-network` fails the build if that changes.
 depends=('gcc-libs')

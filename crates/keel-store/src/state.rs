@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Rollback detection.
 //!
 //! A vault's `write_counter` increases on every save. This module remembers the last

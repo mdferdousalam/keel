@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Reference-counted page locking, and the panic-time wipe.
 //!
 //! # Why the reference counting is necessary

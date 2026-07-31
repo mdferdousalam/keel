@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Size limits applied to anything read from a vault file.
 //!
 //! **Every one of these is checked before an allocation is made.** That ordering

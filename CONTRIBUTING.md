@@ -43,6 +43,35 @@ deliberate: because copyright is distributed across contributors, nobody — the
 maintainers included — can relicense Keel as proprietary software later. For a
 security tool, that irreversibility is a feature worth protecting.
 
+### What you are licensing it under
+
+Signing off contributes your work under the licence of the tree you are touching, which is
+one of three. Nothing extra to sign; this is what the DCO sign-off means here.
+
+| Where you are editing | Inbound licence |
+|---|---|
+| `crates/keel-proto` | `Apache-2.0` |
+| `crates/keel-client` | `MPL-2.0` |
+| Everywhere else | `AGPL-3.0-or-later`, **together with** the additional permission in [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md) |
+
+The additional permission needs saying explicitly. It is what allows Keel to ship through
+an app store at all — Apple's terms and the AGPL are otherwise incompatible — and under
+section 7 a permission like that can only be granted by *every* copyright holder. Since
+there is no CLA, that means every contributor. If it were left implicit, the first
+contributor who had not granted it would quietly make an iOS build impossible for everyone.
+
+If you are not willing to grant it, say so in the pull request instead of signing off. That
+is a legitimate position and it is much cheaper to hear before the patch lands than after.
+
+Two rules follow from the split, and `cargo xtask check-licenses` enforces both:
+
+* **`keel-proto` and `keel-client` may not gain a copyleft dependency.** A dependency's
+  licence governs the combined work, so one AGPL crate underneath `keel-client` would make
+  every application embedding it AGPL while the manifest still advertised MPL. The
+  [layering rules](xtask/src/rules.rs) already forbid the edges that would do this.
+* **Every source file carries an SPDX header** matching its tree. If you move a file
+  between crates, its header moves with it and must be corrected.
+
 ## The rules that are not negotiable
 
 These come from the threat model. A pull request that breaks one will be asked to

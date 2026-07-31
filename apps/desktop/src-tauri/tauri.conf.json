@@ -41,7 +41,7 @@
     "shortDescription": "A local-first password manager",
     "longDescription": "Keel keeps your passwords in one encrypted file on this machine. No server, no account, no telemetry.",
     "category": "Utility",
-    "copyright": "GPL-3.0-or-later",
+    "copyright": "Copyright (C) 2026 Md Ferdous Alam and Keel contributors",
     "licenseFile": "../../../LICENSE",
     "macOS": {
       "minimumSystemVersion": "10.15"

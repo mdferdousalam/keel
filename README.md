@@ -247,11 +247,43 @@ Stated so nothing here is mistaken for a bug:
 
 ## Licence
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+**AGPL-3.0-or-later**, with two deliberate exceptions. See [`LICENSE`](LICENSE) and
+[`COPYRIGHT`](COPYRIGHT).
 
-Contributions are accepted under the Developer Certificate of Origin — there is
-no copyright assignment. That means no one, including the maintainers, can take
-this code proprietary later.
+| | Licence | |
+|---|---|---|
+| Everything not named below — the vault core, the agent, the CLI, the apps, the extension | `AGPL-3.0-or-later` | Modify it freely; if you distribute it, or run a modified version as a network service, the source goes with it |
+| `crates/keel-proto` | `Apache-2.0` | The wire protocol. Anything may speak to the agent |
+| `crates/keel-client` | `MPL-2.0` | Embeddable in a closed application; improvements to *these files* come back |
+
+Affero rather than plain GPL because the obvious way to monetise a password manager is to
+host the sync for people, and the plain GPL does not reach someone who runs your code as a
+service. This project intends to charge for hosting and support one day, and states that
+here rather than letting it surface later — but the code itself stays free, and that
+includes any server: **there is no paid tier that is closed source.**
+
+The two permissive crates are the protocol and the client stub, and neither can reach key
+material, the cryptographic core, or the vault format. That is not a promise, it is a
+layering rule: `cargo xtask check-layering` enforces the dependency direction and
+`cargo xtask check-licenses` enforces that nothing copyleft ever appears beneath them.
+Every source file carries its own SPDX header, so no file's terms depend on guessing.
+
+There is an [additional permission](LICENSE-EXCEPTION.md) for app-store distribution.
+Apple's terms and the AGPL are otherwise incompatible — the reason VLC was pulled from the
+App Store — which would mean no iOS build could ever exist. The permission allows exactly
+that and nothing else: the source obligation is untouched, and it is granted to everyone
+downstream too.
+
+Contributions are accepted under the Developer Certificate of Origin — there is no
+copyright assignment, and no CLA. Every contributor keeps their copyright, so **nobody,
+the maintainers included, can relicense contributed code as proprietary software.** Stated
+precisely, because the precise version is what you can rely on: what a sole author writes,
+a sole author can still license twice, and that is true of any project with one author.
+What makes it irreversible is other people — every contribution makes it more permanent,
+and that is the direction this is going deliberately.
+
+The licence covers the code, not the name. See [`TRADEMARK.md`](TRADEMARK.md): fork it
+freely, call it something else.
 
 ## Reporting a vulnerability
 

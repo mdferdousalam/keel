@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The write transaction.
 //!
 //! Saving a vault is the single most dangerous thing this program does. A crash, a

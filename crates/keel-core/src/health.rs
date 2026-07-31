@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The vault health report: which stored passwords need attention.
 //!
 //! Three questions, in descending order of how much the answer matters:

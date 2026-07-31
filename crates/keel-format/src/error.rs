@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Error types for the vault format.
 //!
 //! These errors are shown to users and written to logs, so they carry no plaintext

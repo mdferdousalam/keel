@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Secret-bearing types.
 //!
 //! Three properties are enforced here, and they are load-bearing:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Crash-safety tests for the write transaction.
 //!
 //! The invariant under test: **at every instant, a complete and valid vault exists on

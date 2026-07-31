@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The headline security claim, tested against a fully hostile MCP client.
 //!
 //! Keel's central promise about AI access is this: *in the default configuration, an agent

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The policy engine: one place where every request is allowed, denied, or escalated.
 //!
 //! Every client — the desktop app, the CLI, a browser extension, an AI agent over

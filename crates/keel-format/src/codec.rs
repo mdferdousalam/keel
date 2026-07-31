@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Bounds-checked primitives for reading and writing the binary format.
 //!
 //! [`Reader`] is the single most safety-relevant type in this crate. Every read

@@ -3,7 +3,7 @@
   "version": "0.0.0-unreleased",
   "description": "Local-first password manager with no server, no account, and no telemetry",
   "homepage": "https://github.com/mdferdousalam/keel",
-  "license": "GPL-3.0-or-later",
+  "license": "AGPL-3.0-or-later",
   "notes": [
     "Keel is distributed without a paid code-signing certificate. Installing through Scoop",
     "avoids SmartScreen's browser-download reputation check, which is why this is the",

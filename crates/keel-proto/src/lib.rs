@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Wire types for talking to the Keel agent.
 //!
 //! Types and framing only — no logic, no cryptography, no I/O. This crate is shared by

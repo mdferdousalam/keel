@@ -10,7 +10,7 @@
 class Keel < Formula
   desc "Local-first password manager with no server, no account, and no telemetry"
   homepage "https://github.com/mdferdousalam/keel"
-  license "GPL-3.0-or-later"
+  license "AGPL-3.0-or-later"
   version "0.0.0-unreleased"
 
   # Filled in at release. Left obviously invalid rather than as a plausible-looking

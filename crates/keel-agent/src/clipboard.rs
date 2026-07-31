@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Putting a secret on the clipboard, and taking it back off again.
 //!
 //! The clipboard is the least private place a password can be — every process

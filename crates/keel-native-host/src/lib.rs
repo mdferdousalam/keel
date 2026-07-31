@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The browser native-messaging bridge.
 //!
 //! Browsers do not let an extension open a socket, so they offer this instead: the browser

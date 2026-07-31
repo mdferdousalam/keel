@@ -25,10 +25,18 @@ exclude = ["apps/desktop", "fuzz"]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
-license = "GPL-3.0-or-later"
+# AGPL rather than GPL because the network clause is the whole point: GPLv3 does not
+# reach someone who runs Keel as a hosted service, and a sync service is the obvious
+# thing to run. Two crates deliberately opt out of this default — see the `license`
+# overrides in keel-proto (Apache-2.0) and keel-client (MPL-2.0), and the reasoning in
+# `docs/architecture.md`. `cargo xtask check-licenses` enforces that the exceptions
+# stay exceptions.
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/mdferdousalam/keel"
 homepage = "https://github.com/mdferdousalam/keel"
-authors = ["Keel contributors"]
+# The named holder is load-bearing, not courtesy: copyleft you cannot attribute is
+# copyleft you cannot enforce. See `COPYRIGHT`.
+authors = ["Md Ferdous Alam <mdferdousalam1989@yahoo.com>", "Keel contributors"]
 
 # ---------------------------------------------------------------------------
 # Shared dependency versions.

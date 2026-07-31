@@ -4,7 +4,13 @@ description = "Keel client library: connect-or-spawn the agent. Holds no key mat
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# MPL-2.0, not the workspace's AGPL. This is the crate a third-party application embeds, and
+# no copyleft license permits that. MPL is the narrowest thing that does: its copyleft is
+# per-file, so a closed application may link this crate, but any improvement to *these* files
+# comes back. The layering rule in `xtask/src/rules.rs` is what makes that safe — this crate
+# may depend only on keel-proto, never on keel-crypto, keel-format, or keel-core, so the
+# permissive surface provably contains no key material, no crypto, and no vault format.
+license = "MPL-2.0"
 repository.workspace = true
 authors.workspace = true
 

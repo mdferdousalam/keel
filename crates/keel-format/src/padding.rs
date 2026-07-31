@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Length padding for encrypted sections.
 //!
 //! Ciphertext length is visible to anyone who can read the file, and an unpadded

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! End-to-end vault lifecycle tests.
 //!
 //! These exercise the whole stack together — key derivation, the on-disk format,

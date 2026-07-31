@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Keel's cryptographic core.
 //!
 //! This crate performs **no I/O**: no filesystem, no network, no clock beyond

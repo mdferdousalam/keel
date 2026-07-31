@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Keel vault logic: lifecycle, policy, audit, and auto-lock.
 //!
 //! This crate is the one that holds an unwrapped vault master key, which is why the

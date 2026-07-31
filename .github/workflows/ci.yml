@@ -114,9 +114,11 @@ jobs:
         with:
           toolchain: 1.93.1
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      # These two checks enforce claims the threat model makes:
+      # These three checks enforce claims the project makes:
       #   - clients cannot link the cryptographic core
       #   - no HTTP/TLS stack is reachable from the vault core
+      #   - the licence boundary holds: every file states its terms, and no copyleft crate
+      #     sits underneath the two crates published as embeddable
       # A claim enforced only by discipline is not enforced.
       # The desktop app is a workspace member, so `cargo build --workspace` on Linux needs
       # the GTK and WebKit development headers. Nothing else in the tree needs them — the
@@ -138,6 +140,8 @@ jobs:
         run: cargo xtask check-layering
       - name: Network isolation
         run: cargo xtask check-network
+      - name: Licence boundary
+        run: cargo xtask check-licenses
 
   deny:
     name: cargo-deny

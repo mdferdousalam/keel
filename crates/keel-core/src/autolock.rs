@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! When an unlocked vault must lock itself.
 //!
 //! A pure state machine: it is told about events and asked whether to lock. Keeping the

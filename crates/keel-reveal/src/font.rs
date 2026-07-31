@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! An 8x14 bitmap font for printable ASCII.
 //!
 //! Hand-built and embedded rather than loaded from a font file, for three reasons that

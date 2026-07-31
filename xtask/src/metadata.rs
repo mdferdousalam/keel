@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Minimal `cargo metadata` model.
 //!
 //! Only the fields the checks actually need are declared. `serde` ignores the
@@ -19,6 +22,7 @@ pub struct Metadata {
 struct RawMetadata {
     packages: Vec<Package>,
     workspace_members: Vec<String>,
+    workspace_root: String,
     #[serde(default)]
     resolve: Option<Resolve>,
 }
@@ -30,6 +34,11 @@ pub struct Package {
     pub id: String,
     /// Crate name.
     pub name: String,
+    /// SPDX expression from the manifest's `license` field. `None` when a crate
+    /// declares none, which for a workspace member is itself a failure — an
+    /// undeclared licence is what crates.io and every downstream scanner reads.
+    #[serde(default)]
+    pub license: Option<String>,
     /// Declared dependencies from this package's manifest.
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
@@ -109,6 +118,14 @@ impl Metadata {
     /// Look up a workspace package by crate name.
     pub fn package_by_name(&self, name: &str) -> Option<&Package> {
         self.workspace_members().find(|p| p.name == name)
+    }
+
+    /// Absolute path to the workspace root directory.
+    ///
+    /// Taken from cargo rather than the process's working directory so the checks give
+    /// the same answer however they were invoked.
+    pub fn workspace_root(&self) -> &str {
+        &self.raw.workspace_root
     }
 
     /// Look up a node in the resolved graph.

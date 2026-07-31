@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The window itself: creation, capture exclusion, drawing, and closing.
 //!
 //! Kept apart from [`crate::draw`] so the rendering can be tested against a plain pixel buffer

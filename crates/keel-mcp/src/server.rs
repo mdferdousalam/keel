@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The stdio server loop.
 //!
 //! Reads newline-delimited JSON-RPC from stdin, writes responses to stdout, and puts every

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The Keel desktop shell.
 //!
 //! A Tauri window over the agent. It holds no keys, opens no vault, and — the part that

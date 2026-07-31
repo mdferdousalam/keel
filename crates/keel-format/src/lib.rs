@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Keel's on-disk vault format.
 //!
 //! This crate is pure: it parses and produces bytes and does no I/O. It is also the

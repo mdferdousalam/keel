@@ -19,7 +19,7 @@ description: |
   derived by Argon2id, and only one process ever holds the keys.
 vendor: Keel
 homepage: https://github.com/mdferdousalam/keel
-license: GPL-3.0-or-later
+license: AGPL-3.0-or-later
 
 # Deliberately empty. Keel links no HTTP or TLS stack and needs no runtime libraries beyond
 # libc; `cargo xtask check-network` enforces the first half of that claim.
