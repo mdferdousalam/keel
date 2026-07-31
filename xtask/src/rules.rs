@@ -39,7 +39,13 @@ pub fn allowed_internal_deps(crate_name: &str) -> Option<&'static [&'static str]
         // ---- vault core ---------------------------------------------------
         "keel-format" => &["keel-crypto"],
         "keel-store" => &["keel-crypto", "keel-format"],
-        "keel-core" => &["keel-crypto", "keel-format", "keel-store", "keel-hardening"],
+        // Deliberately without `keel-hardening`. It was listed and depended on here for the
+        // PageLocker hook, but nothing in keel-core ever referenced it: `keel_hardening::init`
+        // installs the locker into keel-crypto *process-globally*, so the binary that owns the
+        // process does it — `keel-agent`, at the top of main, which is where that function's
+        // own documentation says it belongs. keel-core gets the protection either way, so the
+        // dependency bought nothing and widened the graph of the crate that handles plaintext.
+        "keel-core" => &["keel-crypto", "keel-format", "keel-store"],
 
         // ---- the one privileged process -----------------------------------
         // The agent is the only process that opens the vault file, so it is the only one
