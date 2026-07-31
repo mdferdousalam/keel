@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The opt-in path: what happens when a user *does* let an agent see a password.
 //!
 //! `rogue_agent.rs` proves the shipped default — an agent cannot obtain a password however

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Fuzz manifest unpadding, deserialization, and structural validation.
 //!
 //! Exercises the duplicate-id and overlapping-extent checks, which are the ones that

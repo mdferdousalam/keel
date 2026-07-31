@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The Keel agent: the only process that holds unlocked vault keys.
 //!
 //! Every other component — the CLI, the desktop app, the browser bridge, the MCP

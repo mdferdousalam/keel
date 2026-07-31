@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The reveal overlay: a small native window that shows one secret and then forgets it.
 //!
 //! # Why this is a separate process at all

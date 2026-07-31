@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The agent's shared state: the unlocked vault, policy, audit, and handle table.
 //!
 //! Everything that must be consistent across connections lives here behind one mutex.

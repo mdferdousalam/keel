@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The vault header, and the associated data that binds everything to it.
 //!
 //! The header is plaintext — it has to be, since it holds the parameters needed to

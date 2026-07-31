@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! JSON-RPC 2.0 framing for the MCP stdio transport.
 //!
 //! Targets MCP protocol revision **2025-06-18**. The transport is newline-delimited JSON:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Fuzz the header decoder in isolation.
 //!
 //! Separate from `vault_parse` because the whole-file parser checks the footer hash

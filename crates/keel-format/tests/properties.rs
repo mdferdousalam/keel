@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Property-based tests for the vault format.
 //!
 //! Two properties matter here, and between them they define what "the parser is

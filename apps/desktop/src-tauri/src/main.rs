@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The Keel desktop application.
 //!
 //! Deliberately thin: everything is in the library so it can be tested without starting a

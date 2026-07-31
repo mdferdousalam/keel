@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The Keel agent daemon.
 //!
 //! Holds the unlocked vault so that unlocking happens once per session rather than once

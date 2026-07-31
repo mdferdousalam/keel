@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Authenticated encryption: XChaCha20-Poly1305.
 //!
 //! # Why XChaCha20-Poly1305 rather than AES-256-GCM

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! How weak is an existing password?
 //!
 //! [`generator`](crate::generator) knows the entropy of passwords *it* produced,

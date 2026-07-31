@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The views the webview is allowed to see.
 //!
 //! This module exists so that "no stored secret reaches the webview" is a property of the

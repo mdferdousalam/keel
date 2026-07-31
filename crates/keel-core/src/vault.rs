@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Vault lifecycle: create, open, edit, save, lock.
 //!
 //! This is where the cryptography, the file format, and the storage layer meet. It is

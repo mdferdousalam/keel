@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Autofill, driven the way a browser drives it.
 //!
 //! Runs the real `keel-native-host` binary over real stdio against a real agent, speaking the

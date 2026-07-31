@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Where a vault and its companion files live.
 //!
 //! A vault is not one file but four, and they must travel together:

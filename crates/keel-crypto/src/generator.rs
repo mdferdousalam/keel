@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Password and passphrase generation.
 //!
 //! Two details here are easy to get wrong and are the reason this module exists

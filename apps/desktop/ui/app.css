@@ -1,4 +1,9 @@
 /*
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ * Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+ */
+
+/*
  * Keel's window.
  *
  * Deliberately quiet. A password manager is infrastructure: it should be legible, fast to

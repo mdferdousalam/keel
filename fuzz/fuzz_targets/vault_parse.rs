@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Fuzz the whole-file parser.
 //!
 //! The highest-value target in the project: `parse` is what runs when a user opens a

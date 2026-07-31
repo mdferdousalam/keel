@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The GUI invariant, checked rather than asserted in prose.
 //!
 //! The claim is that no secret stored in the vault ever reaches the webview. This drives the

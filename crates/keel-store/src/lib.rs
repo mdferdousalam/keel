@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Vault file storage: atomic writes, locking, backups, and rollback detection.
 //!
 //! This crate owns every filesystem interaction a vault needs, and nothing else. It

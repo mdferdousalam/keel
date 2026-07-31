@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! The Keel browser native-messaging bridge.
 //!
 //! Thin by design; see [`keel_native_host`] for what this process is and, more importantly,

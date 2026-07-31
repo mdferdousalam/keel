@@ -84,7 +84,7 @@ ignore = [
 
 [licenses]
 version = 2
-# GPL-3.0-or-later project. Permissive licenses can be combined into a GPLv3
+# AGPL-3.0-or-later project. Permissive licenses can be combined into an AGPLv3
 # work; copyleft-incompatible or unknown licenses cannot.
 allow = [
     "Apache-2.0",
@@ -98,13 +98,19 @@ allow = [
     "Zlib",
     "MPL-2.0",
     "CC0-1.0",
-    "GPL-3.0",
     # Keel's own crates. Omitting this rejected every workspace member — the check had never
-    # actually run, so the gap was invisible.
-    "GPL-3.0-or-later",
+    # actually run, so the gap was invisible. The two permissive exceptions (keel-proto,
+    # keel-client) are covered by Apache-2.0 and MPL-2.0 above.
+    "AGPL-3.0-or-later",
     "Unlicense",
     "BSL-1.0",
 ]
+# Deliberately absent: GPL-3.0 and GPL-3.0-or-later. A GPLv3 *dependency* would be legal to
+# link into this AGPLv3 work, so this is not a compatibility judgement — it is that nothing
+# in the graph is GPL, and listing licences nothing uses makes cargo-deny warn about
+# unmatched allowances on every run. Noise in a gate is how a gate stops being read. If a
+# GPL dependency ever does arrive, adding it back should be a decision someone makes and
+# explains, which is exactly what its absence forces.
 confidence-threshold = 0.9
 private = { ignore = true }
 

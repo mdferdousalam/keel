@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
+
 //! Tamper-evident audit log.
 //!
 //! Records what each client asked for and what the policy engine decided. Its purpose is

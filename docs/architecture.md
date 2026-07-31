@@ -58,8 +58,43 @@ stylistic:
   the manifests — and fails if an HTTP or TLS crate becomes reachable from any
   other crate.
 
-Both rules are encoded in `xtask/src/rules.rs`, which has a CODEOWNERS entry
+These rules are encoded in `xtask/src/rules.rs`, which has a CODEOWNERS entry
 because editing it edits a security boundary.
+
+### The licence boundary is the same boundary
+
+Keel is `AGPL-3.0-or-later` except for two crates, and they are not chosen for
+convenience — they are the two crates the layering rule above already proves cannot reach
+anything worth protecting.
+
+| Crate | Licence | Why it can afford to be |
+|---|---|---|
+| `keel-proto` | `Apache-2.0` | Serde wire types. No logic, no crypto, no I/O — a leaf by rule. There is nothing here to protect, and everything that talks to the agent needs it |
+| `keel-client` | `MPL-2.0` | May depend only on `keel-proto`, so it provably holds no key material. Third-party applications embed it; no strong copyleft would let them |
+
+The direction of the argument matters. The licences did not come first — the dependency
+rule did, and the licences follow it. `keel-client` is publishable as embeddable *because*
+`keel-client → keel-proto` is the only edge it is allowed, and that is checked rather than
+remembered. If that rule were relaxed, the permissive licence on the crate would silently
+become a promise the code no longer keeps.
+
+So the same file encodes both, and `cargo xtask check-licenses` enforces the licence half:
+
+* every workspace crate declares the licence `rules::expected_license` names;
+* **no crate depends on an internal crate whose licence reaches further than its own** —
+  transitively, because `keel-client` → helper → `keel-core` leaks copyleft just as
+  effectively as a direct edge, and is much easier to miss in review;
+* every source file carries an SPDX header matching its tree, so a file that moves between
+  crates cannot keep terms that no longer apply to where it now lives.
+
+`keel-format` is the instructive case for why the permissive set is not larger. An open
+vault format is a feature and the crate looks like an obvious candidate — but it depends on
+`keel-crypto`, so a permissive licence there would either be a lie about the combined work
+or a permissive `keel-crypto`, which is the whole vault core. The check rejects it, and the
+reasoning is in `xtask/src/rules.rs` next to the rule.
+
+See `COPYRIGHT` for the licence record and `LICENSE-EXCEPTION.md` for the app-store
+additional permission.
 
 ## Transport and peer authentication
 
