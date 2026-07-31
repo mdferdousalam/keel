@@ -11,9 +11,24 @@ whether an older Keel can still open your vault.
 
 ### Added
 - Cargo workspace, pinned toolchain, and CI (`ci.yml`, `audit.yml`).
-- `cargo xtask check-layering` and `check-network`: CI gates enforcing that no
-  client crate can link the cryptographic core, and that no HTTP/TLS stack is
-  reachable from the vault core. Both are verified to fail when violated.
+- `cargo xtask check-layering`, `check-network`, and `check-licenses`: CI gates
+  enforcing that no client crate can link the cryptographic core, that no HTTP/TLS
+  stack is reachable from the vault core, and that the licence boundary holds — every
+  source file states its terms, and no copyleft crate sits beneath the two crates
+  published as embeddable. All three are verified to fail when violated.
+- `COPYRIGHT`, naming the copyright holder. Nothing in the tree did: the workspace
+  manifest said only "Keel contributors", and `tauri.conf.json` had a licence
+  identifier sitting in its `copyright` field. Copyleft that cannot be attributed
+  cannot be enforced.
+- `LICENSE-EXCEPTION.md`: an AGPL section 7 additional permission for app-store
+  distribution, without which no iOS build could exist — AGPL and Apple's terms are
+  otherwise incompatible. Source obligations are untouched and made stricter, and the
+  permission passes downstream.
+- `TRADEMARK.md`: unmodified builds may use the name, modified builds must rebrand.
+  The licence deliberately permits competing forks and services, so the name is what
+  stops a rebranded build trading on Keel's audit story.
+- SPDX headers on all 83 source files, so no file's terms depend on which directory a
+  reader believes it is in.
 - `keel-crypto`: secret types with no `Debug`/`Serialize`/`Clone` escape hatch,
   page-locking hook, Argon2id tiers with calibration and denial-of-service guards,
   keyed-BLAKE3 factor mixing, HKDF-SHA-512 subkey namespace,
@@ -74,6 +89,19 @@ whether an older Keel can still open your vault.
   tamper-evident audit log; and the auto-lock state machine.
 
 ### Changed
+- **Relicensed from GPL-3.0-or-later to AGPL-3.0-or-later.** Plain GPL does not reach
+  someone who runs the code as a hosted service, which is both the obvious way to earn
+  money from a password manager and the obvious thing for a competitor to do with the
+  source. Two crates are deliberate exceptions: `keel-proto` is Apache-2.0 (wire types
+  only, and everything that talks to the agent needs it) and `keel-client` is MPL-2.0
+  (third parties embed it, and no strong copyleft permits that). The layering rule is
+  what makes those safe — neither may reach `keel-crypto`, `keel-format`, `keel-store`,
+  or `keel-core`. Contributions stay under the DCO with no CLA, so no proprietary tier
+  is possible: paid work is hosting, support, and signed builds.
+- `keel-core` no longer depends on `keel-hardening`. It never used it. The `PageLocker`
+  install is process-global, so it belongs to the binary that owns the process —
+  `keel-agent`, at the top of `main` — and keel-core got the protection either way. An
+  unused edge into the crate that holds every `unsafe` block is not free.
 - Dropped the `fd-lock` dependency in favour of `std::fs::File::try_lock`, stable
   since Rust 1.89. The lock is tied to the file descriptor, so a crash cannot
   leave a vault permanently locked. MSRV is now 1.89.
