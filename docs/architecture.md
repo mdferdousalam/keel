@@ -31,7 +31,7 @@ keel-crypto  → (crypto primitives only)          no I/O, no clock, no platform
 keel-format  → keel-crypto                       parses hostile bytes; fuzzed
 keel-hardening → keel-crypto                     the ONLY crate allowed `unsafe`
 keel-store   → keel-crypto, keel-format          atomic writes, locking, backups
-keel-core    → keel-crypto, keel-format, keel-store, keel-hardening
+keel-core    → keel-crypto, keel-format, keel-store
 keel-proto   → serde only                        wire types, parallel leaf
 keel-agent   → keel-core, keel-proto             the privileged process
 keel-client  → keel-proto                        ← NOT keel-crypto. The key rule.
@@ -47,7 +47,12 @@ stylistic:
   no network, no clock beyond timing its own calibration probe, and no platform
   code. That is what makes it fuzzable and reviewable, and it is why `mlock` lives
   behind the `PageLocker` hook that `keel-hardening` installs rather than inside
-  the crypto crate.
+  the crypto crate. That install is **process-global** — `keel_hardening::init`
+  registers the locker with `keel-crypto` for the whole process — so it is the job of
+  whichever binary owns the process, not of the library being protected. `keel-agent`
+  does it at the top of `main`. This is why `keel-core` handles plaintext secrets
+  while depending on `keel-hardening` not at all: it gets the protection without the
+  edge, and an unused dependency on the crate full of `unsafe` is not free.
 * **`keel-client` may depend only on `keel-proto`.** If it ever gains
   `keel-crypto`, `keel-format`, or `keel-core`, key material becomes reachable
   from four more processes and the short answer above stops being true.
