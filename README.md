@@ -235,13 +235,20 @@ Stated so nothing here is mistaken for a bug:
   check that the window receiving the keystrokes is the one you were shown, typing is
   strictly worse than the clipboard, because it delivers the password to whatever grabbed
   focus in the meantime and leaves no trace.
-- **Windows — it does not build.** Stated precisely, because an earlier version of this file
-  said only that the agent "refuses to start", which was too generous. Two separate problems:
-  `keel-hardening` references windows-sys symbols that do not resolve, so the crate fails to
-  compile; and the agent has no named-pipe transport, which is specified in
-  [`docs/architecture.md`](docs/architecture.md) but not written. Its load-bearing part is a
-  check whose failure mode is to silently grant access, and that is not code to write without
-  being able to run it. macOS and Linux work.
+- **Windows — it builds and passes tests, but the agent refuses to start.** It now compiles:
+  CI runs `cargo test --workspace --locked` on `windows-2022` with warnings denied, and it is
+  green. What remains is that the agent has no named-pipe transport, so `Transport::bind`
+  returns `Unsupported` — see `crates/keel-agent/src/transport.rs`. The transport is specified
+  in [`docs/architecture.md`](docs/architecture.md) but not written, because its load-bearing
+  part is a current-user-only DACL check whose failure mode is to silently grant access, and
+  that is not code to write without being able to run it. macOS and Linux work.
+
+  This entry has now been wrong in both directions, which is worth recording rather than
+  quietly editing. It first said only that the agent "refuses to start", which was too
+  generous while `keel-hardening` was importing windows-sys symbols from the wrong modules and
+  the crate did not compile at all. That was fixed, the "does not build" wording outlived the
+  problem, and a green Windows CI job went unnoticed against a README asserting the opposite.
+  A claim about what is broken decays the same way a claim about what works does.
 - **Signed releases.** No signing keys exist yet, so `keel verify-release` refuses rather than
   pretending to verify anything.
 
