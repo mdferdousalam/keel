@@ -2279,7 +2279,6 @@ dependencies = [
  "blake3",
  "keel-crypto",
  "keel-format",
- "keel-hardening",
  "keel-store",
  "tempfile",
  "thiserror 2.0.19",
