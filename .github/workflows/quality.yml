@@ -54,14 +54,21 @@ jobs:
           ./actionlint -color
 
   # ---------------------------------------------------------------------------
-  # zizmor. Advisory for now, and that is a deliberate staging decision rather than a
-  # dismissal: on its first run it reports 25 medium findings, nearly all `artipacked` —
-  # `actions/checkout` leaving the git credential in the workspace where a later step or an
-  # uploaded artifact could carry it out. Every one is real and worth fixing, and fixing
-  # twenty-odd checkout steps is its own change, not a rider on adding the check.
+  # zizmor. Advisory, at `--min-severity=medium`.
   #
-  # Promote to blocking once the backlog is cleared. A gate that is red on the day it lands
-  # teaches people to ignore it.
+  # Its first run reported 25 medium `artipacked` findings — `actions/checkout` leaving the
+  # git credential in the workspace, where a later step or an uploaded artifact could carry
+  # it out. Those were real, and all 23 outstanding checkouts have since been given
+  # `persist-credentials: false`, which is why this landed with the backlog already cleared
+  # rather than red on arrival.
+  #
+  # What remains below medium is left alone deliberately: almost all of it is
+  # `superfluous-actions` arguing that `dtolnay/rust-toolchain` should be a hand-written
+  # rustup script. That is a style preference, and replacing a widely reviewed pinned action
+  # with bespoke shell is not obviously the safer direction.
+  #
+  # Still advisory rather than blocking because zizmor's rule set grows: a new audit landing
+  # upstream should start a conversation, not a red main branch.
   # ---------------------------------------------------------------------------
   workflow-audit:
     name: Workflow security audit
@@ -81,7 +88,7 @@ jobs:
           # unpinned actions, and self-hosted-runner takeover patterns.
           # (Writing the interpolation syntax literally here is not possible — the runner
           # would evaluate it, which is itself the class of bug zizmor looks for.)
-          zizmor --pedantic --format plain .github/workflows/
+          zizmor --pedantic --min-severity=medium --format plain .github/workflows/
 
   # ---------------------------------------------------------------------------
   # Secret scanning. GitGuardian already runs on pull requests and GitHub's own secret
@@ -95,6 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # Full history: a secret committed and then removed is still a leaked secret, and
           # only shows up if the whole history is scanned.
           fetch-depth: 0

@@ -38,12 +38,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # bitting-crypto is excluded on purpose: Argon2id at real parameters under Miri is
-        # somewhere between hours and never. Its pure helpers are covered by the format
-        # crate's round-trips. Revisit with a test filter if that stops being true.
-        crate: [bitting-format, bitting-proto, bitting-store]
+        # Only crates that compute rather than call the operating system.
+        #
+        # bitting-store was in this list on the first run and cannot be: it failed with
+        # "unsupported operation: syscall: unsupported syscall number 326", which is
+        # copy_file_range — what std::fs::copy uses on Linux, reached through the backup
+        # rotation in the atomic write path. That is a Miri limitation, not a finding.
+        # -Zmiri-disable-isolation does not help; it permits the operations Miri implements
+        # and does not teach it new syscalls.
+        #
+        # bitting-crypto is excluded for a different reason: Argon2id at real parameters
+        # under Miri is somewhere between hours and never.
+        #
+        # What remains is the code that parses hostile bytes, which is the code where a
+        # provenance or aliasing bug would actually matter.
+        crate: [bitting-format, bitting-proto]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: nightly
@@ -51,10 +64,13 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - name: Run the test suite under Miri
         env:
-          # Strict provenance and stacked-borrows checking. `-Zmiri-disable-isolation` is
-          # required because the store crate reads the clock and the filesystem; without it
-          # Miri aborts on the first such call rather than checking anything.
-          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-disable-isolation"
+          # Strict provenance and stacked-borrows checking, with isolation left ON.
+          #
+          # -Zmiri-disable-isolation was here for bitting-store's filesystem access. With
+          # that crate removed the remaining two are pure, so isolation stays enabled — which
+          # is the stricter setting, and means a new call into the operating system from the
+          # parsing code shows up as a failure rather than being quietly permitted.
+          MIRIFLAGS: "-Zmiri-strict-provenance"
         run: cargo +nightly miri test -p ${{ matrix.crate }}
 
   # ---------------------------------------------------------------------------
@@ -74,6 +90,8 @@ jobs:
         crate: [bitting-proto, bitting-client]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
@@ -115,6 +133,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
