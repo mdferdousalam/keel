@@ -15,11 +15,11 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     // Errors are the expected outcome for almost all inputs. What must never happen
     // is a panic, so the result is deliberately discarded.
-    if let Ok(parsed) = keel_format::vault::parse(data) {
+    if let Ok(parsed) = bitting_format::vault::parse(data) {
         // If the structure verified, exercise the paths a caller would take next.
         // A wrong key is fine — authentication failure is a normal error, and this
         // reaches the AEAD and the length checks behind it.
-        let key = keel_crypto::SecretBytes::<32>::zeroed();
+        let key = bitting_crypto::SecretBytes::<32>::zeroed();
         let _ = parsed.open_manifest(&key);
         let _ = parsed.all_blobs();
     }

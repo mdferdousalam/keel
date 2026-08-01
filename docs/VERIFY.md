@@ -1,19 +1,19 @@
-# Verifying a Keel release
+# Verifying a Bitting release
 
 > **No release has been signed yet.** This document describes the process that will apply
-> from the first tagged release. Until then, `keel verify-release` reports that it has no
+> from the first tagged release. Until then, `bitting verify-release` reports that it has no
 > keys compiled in and refuses — which is the correct answer, and better than reporting a
 > success it cannot justify.
 
-## Why this matters more than the rest of Keel's security
+## Why this matters more than the rest of Bitting's security
 
-Everything else in Keel protects your vault. This protects the *program*. A backdoored
+Everything else in Bitting protects your vault. This protects the *program*. A backdoored
 password manager makes every other protection irrelevant, because it can simply read your
 passwords as you type them.
 
 So the design goal is specific:
 
-> **A compromise of the Keel GitHub repository, or of its build pipeline, must not be able
+> **A compromise of the Bitting GitHub repository, or of its build pipeline, must not be able
 > to produce a release that verifies.**
 
 That is achieved by keeping the signing keys off CI entirely. The build pipeline can produce
@@ -25,7 +25,7 @@ only on maintainer hardware. An attacker with full control of GitHub Actions the
 ## The quickest check that is still meaningful
 
 ```sh
-keel verify-release ./keel-1.0.0/
+bitting verify-release ./bitting-1.0.0/
 ```
 
 That single command checks both signatures over `SHA256SUMS` and then every file's hash
@@ -38,7 +38,7 @@ instinct — the same checks with independent tools:
 
 ```sh
 # 1. Verify the Ed25519 signature over the manifest.
-minisign -Vm SHA256SUMS -P "$KEEL_MINISIGN_PUBKEY"
+minisign -Vm SHA256SUMS -P "$BITTING_MINISIGN_PUBKEY"
 
 # 2. Verify the checksums of everything else.
 sha256sum --check SHA256SUMS
@@ -48,7 +48,7 @@ Step 1 must come first. Checking hashes against a manifest nobody signed is thea
 attacker who swapped an artifact would simply update the manifest to match.
 
 For the ML-DSA signature there is no widely-installed command-line tool yet, which is
-precisely why `keel verify-release` exists. Using a previously-verified Keel to check a new
+precisely why `bitting verify-release` exists. Using a previously-verified Bitting to check a new
 one is the practical answer, and it is why the Ed25519 signature is also present: it can be
 checked with tooling that predates this project.
 
@@ -71,7 +71,7 @@ See the README for the full argument.
 
 ## Where the public keys come from
 
-Compiled into the `keel` binary, and published in three independent places:
+Compiled into the `bitting` binary, and published in three independent places:
 
 1. This repository, in the README.
 2. The project website.
@@ -81,7 +81,7 @@ Compiling them in matters: fetching a key from the same place the artifacts came
 make the whole exercise circular. Publishing in three places matters because substituting the
 key then requires compromising all three.
 
-If you ever see a Keel public key that does not match all three, do not use the release. Key
+If you ever see a Bitting public key that does not match all three, do not use the release. Key
 rotation is announced in a release signed by the *old* keys; a new key appearing without that
 transition is a reason to stop.
 
@@ -90,7 +90,7 @@ transition is a reason to stop.
 Releases also carry Sigstore-backed SLSA provenance:
 
 ```sh
-gh attestation verify keel-1.0.0-x86_64-unknown-linux-musl.tar.gz --repo mdferdousalam/keel
+gh attestation verify bitting-1.0.0-x86_64-unknown-linux-musl.tar.gz --repo mdferdousalam/bitting
 ```
 
 This proves which workflow, which commit, and which builder produced the artifact, and it is
@@ -116,15 +116,15 @@ Being clear about the boundaries:
 
 - **It cannot tell you the source code is honest.** It tells you the binary matches the
   source. Reading the source, or trusting people who have, is a separate exercise — which is
-  the entire reason Keel is open source.
-- **It cannot help if your machine is already compromised.** Malware that can modify `keel`
+  the entire reason Bitting is open source.
+- **It cannot help if your machine is already compromised.** Malware that can modify `bitting`
   can also modify the verification you run with it.
 - **It says nothing about your vault.** A verified binary with a guessable passphrase is
   still a vault at risk.
 
 ## A note on operating-system warnings
 
-Keel ships **without paid code-signing certificates**. macOS and Windows will therefore warn
+Bitting ships **without paid code-signing certificates**. macOS and Windows will therefore warn
 about installers downloaded through a browser.
 
 That is a funding decision, not a security one, and it is worth being clear about the

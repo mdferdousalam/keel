@@ -1,6 +1,6 @@
-# Keel vault format, version 1
+# Bitting vault format, version 1
 
-This is the normative description of the `.keel` file format. It exists so the format
+This is the normative description of the `.bitting` file format. It exists so the format
 can be independently implemented and independently reviewed, and so that a future
 change has to be a deliberate, versioned decision.
 
@@ -45,7 +45,7 @@ everything else. Its integrity comes from the binding hash described below.
 
 | Offset | Size | Field | Notes |
 |---|---|---|---|
-| 0 | 8 | `magic` | `4B 45 45 4C 56 4C 54 01` (`"KEELVLT\x01"`) |
+| 0 | 8 | `magic` | `4B 45 45 4C 56 4C 54 01` (`"BITTVLT\x01"`) |
 | 8 | 2 | `format_version` | 1 |
 | 10 | 4 | `header_len` | Total header size in bytes, ≤ 65536 |
 | 14 | 4 | `flags` | Bit 0 compressed records, bit 1 quick-unlock enrolled. Unknown bits rejected. |
@@ -113,7 +113,7 @@ consumed.
 ### `H_id` — the identity hash
 
 ```
-H_id = BLAKE3-256("keel/v1/identity" ‖ format_version:2 ‖ vault_uuid:16 ‖ aead_id:1)
+H_id = BLAKE3-256("bitting/v1/identity" ‖ format_version:2 ‖ vault_uuid:16 ‖ aead_id:1)
 ```
 
 Covers only the three fields that determine *how to interpret the vault body*: a version
@@ -138,9 +138,9 @@ or gated behind a format version bump, never left in a mutable header field.
 ## Associated data
 
 ```
-A_wrap     = "keel/v1/wrap"     ‖ vault_uuid ‖ H_bind ‖ epoch:4
-A_manifest = "keel/v1/manifest" ‖ vault_uuid ‖ H_id   ‖ write_counter:8 ‖ format_version:2
-A_record   = "keel/v1/record"   ‖ vault_uuid ‖ H_id   ‖ record_id:16 ‖ key_epoch:4
+A_wrap     = "bitting/v1/wrap"     ‖ vault_uuid ‖ H_bind ‖ epoch:4
+A_manifest = "bitting/v1/manifest" ‖ vault_uuid ‖ H_id   ‖ write_counter:8 ‖ format_version:2
+A_record   = "bitting/v1/record"   ‖ vault_uuid ‖ H_id   ‖ record_id:16 ‖ key_epoch:4
 ```
 
 `A_manifest` includes the write counter, so replaying an old manifest under a newer
@@ -170,14 +170,14 @@ contains secrets, and it is decrypted **only** when a specific entry is requeste
 never at unlock.
 
 Records are encrypted under `record_key = HKDF-SHA-512(VMK, salt = vault_uuid, info =
-"keel/v1/record/" ‖ record_id ‖ key_epoch)`. Deriving rather than storing a wrapped key
+"bitting/v1/record/" ‖ record_id ‖ key_epoch)`. Deriving rather than storing a wrapped key
 per record saves 60+ bytes and a failure mode per entry, and means reading one password
 decrypts exactly one record.
 
 ## Manifest
 
 `postcard(Manifest)` padded to a multiple of **4096 bytes**, then sealed under
-`index_key = HKDF-SHA-512(VMK, salt = vault_uuid, info = "keel/v1/index")` with
+`index_key = HKDF-SHA-512(VMK, salt = vault_uuid, info = "bitting/v1/index")` with
 `A_manifest`.
 
 The manifest holds, per entry: record id, key epoch, blob hash, blob offset, blob
@@ -239,7 +239,7 @@ Enforced on load, after authentication, across live and trashed entries alike:
 |---|---|---|
 | −48 | 8 | `total_len` — must equal the real file length |
 | −40 | 32 | `BLAKE3-256` of all preceding bytes, including `total_len` |
-| −8 | 8 | `magic_end` — `"KEELEND\x01"` |
+| −8 | 8 | `magic_end` — `"BITTEND\x01"` |
 
 **The footer is a corruption check, not an authentication check.** The hash is unkeyed,
 so anyone who edits the file can recompute it. It detects truncation, partial writes,
@@ -309,16 +309,16 @@ explicit confirmation and is recorded in the audit log.
 
 | File | Contents |
 |---|---|
-| `vault.keel` | The vault |
-| `vault.keel.bak.{1,2,3}` | Rotated backups, each tagged with its write counter |
+| `vault.bitting` | The vault |
+| `vault.bitting.bak.{1,2,3}` | Rotated backups, each tagged with its write counter |
 | `vault.audit` | Hash-chained audit log, encrypted under `audit_key` |
 | `vault.state` | Last-seen write counter and hashes |
-| `vault.keel.lock` | Advisory lock held during a write transaction |
+| `vault.bitting.lock` | Advisory lock held during a write transaction |
 
 ## Test vectors and conformance
 
-`crates/keel-format/tests/` holds round-trip and property tests; `fuzz/` holds the
+`crates/bitting-format/tests/` holds round-trip and property tests; `fuzz/` holds the
 parser fuzz targets and their seed corpora. From 1.0.0, fixed test vectors in
-`crates/keel-format/tests/vectors/` become a compatibility contract: if a change breaks
+`crates/bitting-format/tests/vectors/` become a compatibility contract: if a change breaks
 them, it has changed the format and needs a version bump and a migration, not an updated
 vector.

@@ -2,10 +2,10 @@
 // Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
 
 /**
- * The Keel extension's service worker.
+ * The Bitting extension's service worker.
  *
  * It owns the one privileged capability the extension has — the native-messaging port to
- * `keel-native-host` — and does as little as possible with it.
+ * `bitting-native-host` — and does as little as possible with it.
  *
  * Two things are worth stating because they are easy to get wrong and expensive when wrong.
  *
@@ -20,8 +20,8 @@
  * and the vault is on the other side of a socket that answers only specific questions.
  */
 
-/** Name registered in the native-messaging manifest that `keel setup-browser` writes. */
-const HOST = "dev.keel.native_host";
+/** Name registered in the native-messaging manifest that `bitting setup-browser` writes. */
+const HOST = "dev.bitting.native_host";
 
 let nextId = 1;
 
@@ -39,13 +39,13 @@ function ask(message) {
       chrome.runtime.sendNativeMessage(HOST, payload, (reply) => {
         const error = chrome.runtime.lastError;
         if (error) {
-          // The usual cause is that `keel setup-browser` has not been run, so the browser
+          // The usual cause is that `bitting setup-browser` has not been run, so the browser
           // has no manifest telling it how to launch the host.
           resolve({
             ok: false,
             code: "host_unavailable",
             error:
-              "Keel's browser bridge is not installed. Run `keel setup-browser` and reload the extension.",
+              "Bitting's browser bridge is not installed. Run `bitting setup-browser` and reload the extension.",
           });
           return;
         }
@@ -80,7 +80,7 @@ async function activeTab() {
  * Fill a credential into the active tab.
  *
  * Injected on demand with `chrome.scripting.executeScript` rather than by a declarative
- * content script, so nothing of Keel's runs on a page until the user clicks. The injected
+ * content script, so nothing of Bitting's runs on a page until the user clicks. The injected
  * function re-checks the origin as its first act: between the popup asking and this running,
  * the page may have navigated, and writing a password into wherever it went would be exactly
  * the bug this whole path is arranged to avoid.
@@ -127,7 +127,7 @@ async function fillActiveTab(tabId, expectedOrigin, credential) {
         return {
           ok: false,
           reason: masquerading
-            ? "the password field on this page is not a real password field, so Keel will not fill it"
+            ? "the password field on this page is not a real password field, so Bitting will not fill it"
             : "no password field found on this page",
         };
       }
@@ -239,7 +239,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (credential.result?.origin && credential.result.origin !== stripDefaultPort(origin)) {
           sendResponse({
             ok: false,
-            error: "The page changed while Keel was fetching the password. Nothing was filled.",
+            error: "The page changed while Bitting was fetching the password. Nothing was filled.",
           });
           return;
         }

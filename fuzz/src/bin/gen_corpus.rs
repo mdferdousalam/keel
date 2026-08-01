@@ -15,12 +15,12 @@
 use std::fs;
 use std::path::Path;
 
-use keel_crypto::kdf::{Argon2Params, MIN_M_COST_KIB};
-use keel_crypto::{subkeys, SecretBytes, AEAD_ID_XCHACHA20POLY1305, KDF_ID_ARGON2ID_V13, NONCE_LEN};
-use keel_format::header::{Fido2Factor, WrappedKey, YubikeyFactor, WRAPPED_KEY_CT_LEN};
-use keel_format::manifest::{EntryMeta, Manifest};
-use keel_format::vault::{self, VaultImage};
-use keel_format::{FactorSet, Header, HeaderFlags, RecordBody, FORMAT_VERSION};
+use bitting_crypto::kdf::{Argon2Params, MIN_M_COST_KIB};
+use bitting_crypto::{subkeys, SecretBytes, AEAD_ID_XCHACHA20POLY1305, KDF_ID_ARGON2ID_V13, NONCE_LEN};
+use bitting_format::header::{Fido2Factor, WrappedKey, YubikeyFactor, WRAPPED_KEY_CT_LEN};
+use bitting_format::manifest::{EntryMeta, Manifest};
+use bitting_format::vault::{self, VaultImage};
+use bitting_format::{FactorSet, Header, HeaderFlags, RecordBody, FORMAT_VERSION};
 
 fn header(uuid: [u8; 16], factors: FactorSet, epochs: u32) -> Header {
     Header {
@@ -36,7 +36,7 @@ fn header(uuid: [u8; 16], factors: FactorSet, epochs: u32) -> Header {
             t_cost: 1,
             p_cost: 1,
         },
-        kdf_salt: [0x11; keel_crypto::SALT_LEN],
+        kdf_salt: [0x11; bitting_crypto::SALT_LEN],
         measured_kdf_ms: 1200,
         factors,
         aead_id: AEAD_ID_XCHACHA20POLY1305,

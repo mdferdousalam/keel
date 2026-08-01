@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
 
-//! The Keel desktop shell.
+//! The Bitting desktop shell.
 //!
 //! A Tauri window over the agent. It holds no keys, opens no vault, and — the part that
 //! shapes every decision in this crate — **never passes a secret to the webview**.
@@ -16,7 +16,7 @@
 //!
 //! What the webview gets instead:
 //!
-//! * **Opaque handles.** An [`EntryRef`](keel_proto::EntryRef) is a random per-session
+//! * **Opaque handles.** An [`EntryRef`](bitting_proto::EntryRef) is a random per-session
 //!   token the agent maps back to an entry. It is meaningless after a lock, so a webview
 //!   heap dumped from a crash report three days later contains nothing usable.
 //! * **Masks.** A password field arrives as a run of bullets, its length, and a strength
@@ -57,13 +57,13 @@
 
 use std::sync::Mutex;
 
-use keel_client::Client;
-use keel_proto::{ClientKind, Field, Request, Response, SecretAction};
+use bitting_client::Client;
+use bitting_proto::{ClientKind, Field, Request, Response, SecretAction};
 
 pub mod masking;
 
 /// Identifier this shell presents to the agent.
-const CLIENT_ID: &str = "keel-desktop";
+const CLIENT_ID: &str = "bitting-desktop";
 
 /// The connection to the agent, shared across commands.
 ///
@@ -112,7 +112,7 @@ impl AgentLink {
         let mut guard = self
             .client
             .lock()
-            .map_err(|_| "the desktop shell's connection state is unusable; restart Keel")?;
+            .map_err(|_| "the desktop shell's connection state is unusable; restart Bitting")?;
 
         if guard.is_none() {
             *guard = Some(connect()?);
@@ -134,17 +134,17 @@ impl AgentLink {
         *guard = Some(connect()?);
         let client = guard
             .as_mut()
-            .ok_or_else(|| "could not reach the Keel agent".to_owned())?;
+            .ok_or_else(|| "could not reach the Bitting agent".to_owned())?;
         let response = client
             .request(request)
-            .map_err(|e| format!("could not reach the Keel agent: {e}"))?;
+            .map_err(|e| format!("could not reach the Bitting agent: {e}"))?;
         interpret(response)
     }
 }
 
 fn connect() -> Result<Client, String> {
     Client::connect(ClientKind::Gui, CLIENT_ID)
-        .map_err(|e| format!("could not reach the Keel agent: {e}"))
+        .map_err(|e| format!("could not reach the Bitting agent: {e}"))
 }
 
 /// Turn an agent error response into an `Err`, so commands need not check for it.
@@ -163,7 +163,7 @@ fn interpret(response: Response) -> Result<Response, String> {
 // ---------------------------------------------------------------------------
 //
 // Every return type is a `masking::*` view. That is the enforcement point: a command
-// cannot accidentally return a `keel_proto` type carrying a secret, because the views are
+// cannot accidentally return a `bitting_proto` type carrying a secret, because the views are
 // the only thing the command layer knows how to build, and none of them has a field for
 // one.
 
@@ -240,7 +240,7 @@ fn entry_detail(
     reference: String,
 ) -> Result<masking::DetailView, String> {
     let response = link.request(&Request::GetMetadata {
-        reference: keel_proto::EntryRef(reference),
+        reference: bitting_proto::EntryRef(reference),
     })?;
     masking::DetailView::from_response(&response)
 }
@@ -256,7 +256,7 @@ fn copy_field(
     field: String,
 ) -> Result<String, String> {
     let response = link.request(&Request::UseSecret {
-        reference: keel_proto::EntryRef(reference),
+        reference: bitting_proto::EntryRef(reference),
         field: parse_field(&field)?,
         action: SecretAction::Clipboard,
     })?;
@@ -268,7 +268,7 @@ fn copy_field(
 
 /// Show a secret in the native overlay.
 ///
-/// Note what this does **not** do: return the secret. The agent spawns `keel-reveal` and pipes
+/// Note what this does **not** do: return the secret. The agent spawns `bitting-reveal` and pipes
 /// the value to it directly, so the plaintext goes from the process holding the vault to the
 /// process drawing it and never enters this one — let alone the webview. This command receives
 /// nothing but an acknowledgement.
@@ -283,7 +283,7 @@ fn reveal_on_screen(
     field: String,
 ) -> Result<(), String> {
     link.request(&Request::RevealOnScreen {
-        reference: keel_proto::EntryRef(reference),
+        reference: bitting_proto::EntryRef(reference),
         field: parse_field(&field)?,
     })?;
     Ok(())
@@ -309,14 +309,14 @@ fn add_entry(
         vec![url.trim().to_owned()]
     };
     let response = link.request(&Request::CreateEntry {
-        input: keel_proto::EntryInput {
+        input: bitting_proto::EntryInput {
             title,
             username,
             origins,
             tags,
             notes: String::new(),
         },
-        secret: keel_proto::SecretSource::Generate { length, words },
+        secret: bitting_proto::SecretSource::Generate { length, words },
     })?;
     masking::CreatedView::from_response(&response)
 }
@@ -328,8 +328,8 @@ fn rotate(
     reference: String,
 ) -> Result<masking::CreatedView, String> {
     let response = link.request(&Request::RotateSecret {
-        reference: keel_proto::EntryRef(reference),
-        secret: keel_proto::SecretSource::Generate {
+        reference: bitting_proto::EntryRef(reference),
+        secret: bitting_proto::SecretSource::Generate {
             length: None,
             words: None,
         },
@@ -341,7 +341,7 @@ fn rotate(
 #[tauri::command]
 fn trash(link: tauri::State<'_, AgentLink>, reference: String) -> Result<(), String> {
     link.request(&Request::TrashEntry {
-        reference: keel_proto::EntryRef(reference),
+        reference: bitting_proto::EntryRef(reference),
     })?;
     Ok(())
 }
@@ -388,7 +388,7 @@ fn revoke(link: tauri::State<'_, AgentLink>, client_id: String) -> Result<(), St
 #[tauri::command]
 fn pending_approvals(
     link: tauri::State<'_, AgentLink>,
-) -> Result<Vec<keel_proto::PendingApprovalView>, String> {
+) -> Result<Vec<bitting_proto::PendingApprovalView>, String> {
     let response = link.request(&Request::PendingApprovals)?;
     match response {
         Response::PendingApprovals { approvals } => Ok(approvals),

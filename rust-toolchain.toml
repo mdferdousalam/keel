@@ -2,5 +2,12 @@
 # Pinned exactly. Reproducible builds require the compiler to be a fixed input,
 # not "whatever is current". Bumping this is a deliberate, reviewed change.
 channel = "1.93.1"
-components = ["rustfmt", "clippy"]
+# `rust-analyzer` is here for editors, not for the build. Without it, VS Code falls back to
+# the rust-analyzer bundled with the extension, which tracks a newer toolchain than this
+# pin and warns on every launch that it cannot work properly against it. Listing the
+# component makes rustup supply the version matching the pinned compiler.
+#
+# This does not weaken the reproducibility argument above: components are tooling, not
+# compiler inputs. `channel` is the fixed input, and it is unchanged.
+components = ["rustfmt", "clippy", "rust-analyzer"]
 profile = "minimal"

@@ -319,7 +319,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "keel-crypto"
+name = "bitting-crypto"
 version = "0.1.0"
 dependencies = [
  "argon2",
@@ -334,11 +334,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "keel-format"
+name = "bitting-format"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "keel-crypto",
+ "bitting-crypto",
  "postcard",
  "serde",
  "thiserror",
@@ -346,11 +346,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "keel-fuzz"
+name = "bitting-fuzz"
 version = "0.0.0"
 dependencies = [
- "keel-crypto",
- "keel-format",
+ "bitting-crypto",
+ "bitting-format",
  "libfuzzer-sys",
 ]
 

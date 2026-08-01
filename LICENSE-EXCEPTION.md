@@ -1,19 +1,19 @@
-# Keel additional permission — application distribution services
+# Bitting additional permission — application distribution services
 
 *Additional permission under section 7 of the GNU Affero General Public License,
 version 3.*
 
 ## Why this exists
 
-Keel is licensed under AGPL-3.0-or-later. That license forbids conveying the program
+Bitting is licensed under AGPL-3.0-or-later. That license forbids conveying the program
 under terms that add restrictions to the ones it grants — and the terms of service of
 every major mobile application store do exactly that. Apple's App Store terms limit how
 many devices a copy may be installed on and forbid the recipient from redistributing it,
 neither of which the AGPL permits a distributor to impose. This is not a theoretical
 conflict: it is why VLC was removed from the App Store in 2011.
 
-The consequence, without this file, is that Keel could never ship an iOS application.
-macOS has other channels — Keel already distributes a notarized `.dmg` and a Homebrew
+The consequence, without this file, is that Bitting could never ship an iOS application.
+macOS has other channels — Bitting already distributes a notarized `.dmg` and a Homebrew
 formula, see `packaging/` — but on iOS the App Store is the only channel that exists.
 
 So the copyright holders grant the permission below. Section 7 of the AGPL exists
@@ -23,7 +23,7 @@ than everyone quietly ignoring the conflict.
 ## The permission
 
 As an additional permission under section 7 of the GNU Affero General Public License
-version 3, the copyright holders of Keel grant you permission to convey a covered work,
+version 3, the copyright holders of Bitting grant you permission to convey a covered work,
 in object-code form only, through an **application distribution service** — an operator
 that distributes applications to end users and requires, as a condition of that
 distribution, acceptance of terms that would otherwise be forbidden by section 10 of the
@@ -72,10 +72,10 @@ an app store.
 **It does not weaken the copyleft.** The source obligation is untouched, and condition 1
 makes it stricter than the AGPL alone requires: public availability, not merely
 availability to the people who received a binary. Whatever an app store's terms say about
-its own customers, the source of every shipped Keel build remains public and remains AGPL.
+its own customers, the source of every shipped Bitting build remains public and remains AGPL.
 
-**It does not apply to the permissively licensed crates.** `crates/keel-proto`
-(Apache-2.0) and `crates/keel-client` (MPL-2.0) are not covered by the AGPL and need no
+**It does not apply to the permissively licensed crates.** `crates/bitting-proto`
+(Apache-2.0) and `crates/bitting-client` (MPL-2.0) are not covered by the AGPL and need no
 exception; those licenses have no conflict with any store's terms.
 
 **Contributions inherit it.** Contributions are accepted under the Developer Certificate

@@ -1,12 +1,12 @@
 # Packaging
 
-Keel is distributed **without paid code-signing certificates**. That is a deliberate
+Bitting is distributed **without paid code-signing certificates**. That is a deliberate
 constraint, and it shapes this directory: the strategy is to route users through channels
 where OS gatekeeping does not apply, and to be honest about the ones where it does.
 
 The integrity story does not depend on a certificate. Releases are reproducible on Linux and
 signed offline with two independent algorithms (Ed25519 and ML-DSA-65), and
-`keel verify-release` requires **both**. A purchased certificate would improve first-run UX and
+`bitting verify-release` requires **both**. A purchased certificate would improve first-run UX and
 would not improve integrity — a compromised CI pipeline can be handed a certificate, and cannot
 be handed an offline key. That framing belongs in the release notes, not in an apology.
 
@@ -21,8 +21,8 @@ be handed an offline key. That framing belongs in the release notes, not in an a
 | **winget** (Windows) | Partial | Community repo listing with hash verification. |
 | **portable `.zip`** (Windows) | Minimal | Extract and run. Far less friction than an installer. |
 | **`.deb` / `.rpm` / AppImage** (Linux) | None | Built with `nfpm`. Linux is the smoothest platform because nothing gatekeeps. |
-| **AUR** (Arch) | None | `keel` builds from source with a committed lockfile; `keel-bin` uses the release artifact. |
-| **`cargo install keel-cli`** | None | Builds from source. Always available. |
+| **AUR** (Arch) | None | `bitting` builds from source with a committed lockfile; `bitting-bin` uses the release artifact. |
+| **`cargo install bitting-cli`** | None | Builds from source. Always available. |
 
 ## What is here and what is not
 

@@ -1,17 +1,17 @@
-# Maintainer: Keel maintainers <security@keel.dev>
+# Maintainer: Bitting maintainers <security@bitting.dev>
 #
 # Builds from the tagged source with the committed lockfile, so what a user runs is built from
-# exactly the dependency versions the release was tested against. `keel-bin` (a separate
+# exactly the dependency versions the release was tested against. `bitting-bin` (a separate
 # PKGBUILD) uses the published artifact for people who would rather verify a signature than
 # compile.
-pkgname=keel
+pkgname=bitting
 pkgver=0.0.0.unreleased
 pkgrel=1
 pkgdesc="Local-first password manager with no server, no account, and no telemetry"
 arch=('x86_64' 'aarch64')
-url="https://github.com/mdferdousalam/keel"
+url="https://github.com/mdferdousalam/bitting"
 license=('AGPL-3.0-or-later')
-# No runtime dependencies beyond libc. Keel links no HTTP or TLS stack, and
+# No runtime dependencies beyond libc. Bitting links no HTTP or TLS stack, and
 # `cargo xtask check-network` fails the build if that changes.
 depends=('gcc-libs')
 makedepends=('cargo' 'git')
@@ -43,14 +43,14 @@ build() {
 
 package() {
   cd "$pkgname-$pkgver"
-  # keel-reveal is not here: it links a window toolkit and belongs with the desktop package.
+  # bitting-reveal is not here: it links a window toolkit and belongs with the desktop package.
   # See packaging/nfpm.yaml for why, including the part about Linux having no way to keep such
   # a window out of a screen recording.
-  for binary in keel keel-agent keel-mcp keel-native-host; do
+  for binary in bitting bitting-agent bitting-mcp bitting-native-host; do
     install -Dm0755 "target/release/$binary" "$pkgdir/usr/bin/$binary"
   done
-  install -Dm0644 packaging/keel-agent.service \
-    "$pkgdir/usr/lib/systemd/user/keel-agent.service"
+  install -Dm0644 packaging/bitting-agent.service \
+    "$pkgdir/usr/lib/systemd/user/bitting-agent.service"
   install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm0644 docs/threat-model.md "$pkgdir/usr/share/doc/$pkgname/threat-model.md"

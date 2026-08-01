@@ -5,53 +5,58 @@
 #
 # Version comes from the environment so the tag is the single source of truth; a version
 # hard-coded here would drift from the tag exactly once and be wrong in a shipped package.
-name: keel
-version: ${KEEL_VERSION}
+name: bitting
+version: ${BITTING_VERSION}
 release: "1"
 section: utils
 priority: optional
-arch: ${KEEL_ARCH}
-maintainer: Keel maintainers <security@keel.dev>
+arch: ${BITTING_ARCH}
+# Placeholder, and deliberately on the reserved `.example` TLD rather than a plausible
+# real domain — matching SECURITY.md. The previous value was `security@keel.dev`, which
+# the rename turned into `security@bitting.dev`; that domain is registered to someone
+# else, so shipping it in package metadata would have pointed vulnerability reports at a
+# stranger's mailbox. Replace with a real address before the first signed release.
+maintainer: Bitting maintainers <security@bitting.example>
 description: |
   A local-first password manager.
-  Keel keeps your passwords in one encrypted file on this machine. There is no server, no
+  Bitting keeps your passwords in one encrypted file on this machine. There is no server, no
   account, and no telemetry. The vault is encrypted with XChaCha20-Poly1305 under a key
   derived by Argon2id, and only one process ever holds the keys.
-vendor: Keel
-homepage: https://github.com/mdferdousalam/keel
+vendor: Bitting
+homepage: https://github.com/mdferdousalam/bitting
 license: AGPL-3.0-or-later
 
-# Deliberately empty. Keel links no HTTP or TLS stack and needs no runtime libraries beyond
+# Deliberately empty. Bitting links no HTTP or TLS stack and needs no runtime libraries beyond
 # libc; `cargo xtask check-network` enforces the first half of that claim.
 depends: []
 
 contents:
-  - src: ./target/release/keel
-    dst: /usr/bin/keel
-  - src: ./target/release/keel-agent
-    dst: /usr/bin/keel-agent
-  - src: ./target/release/keel-mcp
-    dst: /usr/bin/keel-mcp
-  - src: ./target/release/keel-native-host
-    dst: /usr/bin/keel-native-host
+  - src: ./target/release/bitting
+    dst: /usr/bin/bitting
+  - src: ./target/release/bitting-agent
+    dst: /usr/bin/bitting-agent
+  - src: ./target/release/bitting-mcp
+    dst: /usr/bin/bitting-mcp
+  - src: ./target/release/bitting-native-host
+    dst: /usr/bin/bitting-native-host
 
-  # keel-reveal is deliberately absent. It links a window toolkit, so it cannot come from the
+  # bitting-reveal is deliberately absent. It links a window toolkit, so it cannot come from the
   # static musl build the release produces, and on Linux it has no way to hide itself from
   # screen capture anyway — X11 offers no mechanism and Wayland exposes none to a client.
-  # `keel show` therefore reports that the overlay is unavailable rather than opening a window
+  # `bitting show` therefore reports that the overlay is unavailable rather than opening a window
   # that looks protected and is not. It ships with the desktop package, where a dynamically
   # linked build is already required.
   - src: ./LICENSE
-    dst: /usr/share/doc/keel/LICENSE
+    dst: /usr/share/doc/bitting/LICENSE
   - src: ./README.md
-    dst: /usr/share/doc/keel/README.md
+    dst: /usr/share/doc/bitting/README.md
   - src: ./docs/threat-model.md
-    dst: /usr/share/doc/keel/threat-model.md
+    dst: /usr/share/doc/bitting/threat-model.md
 
   # A user unit, not a system one. The agent holds one user's keys and must never run as a
   # shared service: a system-wide agent would put every user's vault in one process.
-  - src: ./packaging/keel-agent.service
-    dst: /usr/lib/systemd/user/keel-agent.service
+  - src: ./packaging/bitting-agent.service
+    dst: /usr/lib/systemd/user/bitting-agent.service
 
 # No post-install script. Nothing here needs to run as root, create a user, or touch a
 # system-wide configuration file, and a package that asks for a root hook it does not need is

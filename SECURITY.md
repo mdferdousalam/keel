@@ -8,7 +8,7 @@ Use GitHub's private vulnerability reporting: go to the **Security** tab →
 **Report a vulnerability**. That creates a private advisory only the maintainers
 can see.
 
-If that is unavailable to you, email **security@keel.example** (replace with the
+If that is unavailable to you, email **security@bitting.example** (replace with the
 real address before the first release) and, if you want the report encrypted, use
 the maintainer key published in the repository root as `MAINTAINER-KEY.asc`.
 
@@ -22,7 +22,7 @@ the maintainer key published in the repository root as `MAINTAINER-KEY.asc`.
 | Credit | Public credit in the advisory and the changelog, unless you prefer otherwise |
 | Bounty | **None.** There is no bug bounty programme. |
 
-That last row is stated plainly on purpose. Keel is an unfunded free-software
+That last row is stated plainly on purpose. Bitting is an unfunded free-software
 project, and an unspoken expectation of payment is a bad way for a good-faith
 report to end.
 
@@ -83,7 +83,7 @@ be closed with a pointer here.
   cannot make a dictionary word strong.
 * **Physical access to an unlocked, logged-in machine.**
 * **Absence of plausible deniability.** The vault has a magic number and a
-  readable header. It is obvious that it is a Keel vault, and we do not pretend
+  readable header. It is obvious that it is a Bitting vault, and we do not pretend
   otherwise.
 * **Cold-boot and DMA attacks against RAM.**
 * **Clipboard managers capturing a copied password.** We set the platform hints
@@ -92,14 +92,14 @@ be closed with a pointer here.
   conventions, not enforcement. Prefer autofill or direct typing.
 * **Screenshot capture on Wayland or X11.** Those platforms provide no
   window-level capture exclusion, unlike macOS and Windows, which we do use.
-* **Missing code-signing certificates.** Keel ships unsigned on macOS and Windows
+* **Missing code-signing certificates.** Bitting ships unsigned on macOS and Windows
   because it has no funding for certificates. This is a known, documented
   trade-off; integrity is provided instead by reproducible builds and offline
   hybrid signatures.
 
 ## Hardening expectations for users
 
-Keel's threat model assumes you have done these, and several of its guarantees are
+Bitting's threat model assumes you have done these, and several of its guarantees are
 weaker without them:
 
 * **Full-disk encryption** (FileVault, BitLocker, LUKS). This is the mitigation

@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Keel repository automation: layering checks, manifest generation, packaging."
+description = "Bitting repository automation: layering checks, manifest generation, packaging."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ publish = false
 
 # xtask is a developer tool that never ships, so its dependencies are outside the
 # vault's trust boundary and outside the dependency budget that applies to
-# keel-core. It still may not use `unsafe`.
+# bitting-core. It still may not use `unsafe`.
 [lints.rust]
 unsafe_code = "forbid"
 

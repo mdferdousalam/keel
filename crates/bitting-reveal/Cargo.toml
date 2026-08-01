@@ -1,0 +1,30 @@
+[package]
+name = "bitting-reveal"
+description = "Bitting native reveal overlay: renders one secret outside any webview."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "bitting-reveal"
+path = "src/main.rs"
+
+[lib]
+name = "bitting_reveal"
+path = "src/lib.rs"
+
+# A window and a pixel buffer, and nothing else. No webview, and deliberately no font library:
+# this process holds a plaintext password, so a parser for a complex binary format is exactly
+# what it should not contain. The font is a hand-built bitmap in `font.rs`.
+[dependencies]
+bitting-hardening = { workspace = true }
+softbuffer = "0.4"
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland"] }
+zeroize = { workspace = true }
+

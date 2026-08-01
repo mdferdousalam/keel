@@ -85,7 +85,7 @@ jobs:
           # point of this workflow is lost.
           cargo build --locked --profile release-repro \
             --target x86_64-unknown-linux-musl \
-            -p keel-cli -p keel-agent -p keel-mcp -p keel-native-host
+            -p bitting-cli -p bitting-agent -p bitting-mcp -p bitting-native-host
 
           # Repackage exactly as release.yml does, or the archive hash will differ for reasons
           # that have nothing to do with the binaries.
@@ -95,8 +95,8 @@ jobs:
           mkdir -p rebuilt
           tar --sort=name --owner=0 --group=0 --numeric-owner \
               --mtime="@${SOURCE_DATE_EPOCH}" \
-              -czf "rebuilt/keel-${version}-${target}.tar.gz" \
-              -C "target/${target}/release-repro" keel keel-agent
+              -czf "rebuilt/bitting-${version}-${target}.tar.gz" \
+              -C "target/${target}/release-repro" bitting bitting-agent
           (cd rebuilt && sha256sum ./*) > rebuilt/SHA256SUMS.local
           cat rebuilt/SHA256SUMS.local
 

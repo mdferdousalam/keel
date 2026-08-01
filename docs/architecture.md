@@ -5,14 +5,14 @@
 One long-lived process holds the unlocked vault. Everything else is a client.
 
 ```
- keel (CLI) ──────────UDS──►┌──────────────────────────────────────────┐
- keel-mcp ────────────UDS──►│  keel-agent                              │──► vault.keel
- keel-native-host ────UDS──►│                                          │──► vault.audit
+ bitting (CLI) ──────────UDS──►┌──────────────────────────────────────────┐
+ bitting-mcp ────────────UDS──►│  bitting-agent                              │──► vault.bitting
+ bitting-native-host ────UDS──►│                                          │──► vault.audit
     ▲ stdio                 │  · VMK + subkeys (mlock'd, zeroized)     │──► vault.state
  browser extension          │  · session table, per-client policy      │
                             │  · grant / approval engine               │
- Keel.app (Tauri) ────UDS──►│  · auto-lock, clipboard auto-clear       │
-   └─ approval modals       │  · spawns keel-reveal for plaintext      │
+ Bitting.app (Tauri) ────UDS──►│  · auto-lock, clipboard auto-clear       │
+   └─ approval modals       │  · spawns bitting-reveal for plaintext      │
                             └──────────────────────────────────────────┘
 ```
 
@@ -27,38 +27,38 @@ That property is enforced by `cargo xtask check-layering`, not by convention.
 ## Crates and dependency direction
 
 ```
-keel-crypto  → (crypto primitives only)          no I/O, no clock, no platform
-keel-format  → keel-crypto                       parses hostile bytes; fuzzed
-keel-hardening → keel-crypto                     the ONLY crate allowed `unsafe`
-keel-store   → keel-crypto, keel-format          atomic writes, locking, backups
-keel-core    → keel-crypto, keel-format, keel-store
-keel-proto   → serde only                        wire types, parallel leaf
-keel-agent   → keel-core, keel-proto             the privileged process
-keel-client  → keel-proto                        ← NOT keel-crypto. The key rule.
-keel-cli / keel-mcp / keel-native-host / keel-reveal / desktop → keel-client
-keel-import  → keel-crypto, keel-format          CSV and browser importers
-keel-breach  → rustls, ureq                      the ONLY crate with a network dep
+bitting-crypto  → (crypto primitives only)          no I/O, no clock, no platform
+bitting-format  → bitting-crypto                       parses hostile bytes; fuzzed
+bitting-hardening → bitting-crypto                     the ONLY crate allowed `unsafe`
+bitting-store   → bitting-crypto, bitting-format          atomic writes, locking, backups
+bitting-core    → bitting-crypto, bitting-format, bitting-store
+bitting-proto   → serde only                        wire types, parallel leaf
+bitting-agent   → bitting-core, bitting-proto             the privileged process
+bitting-client  → bitting-proto                        ← NOT bitting-crypto. The key rule.
+bitting-cli / bitting-mcp / bitting-native-host / bitting-reveal / desktop → bitting-client
+bitting-import  → bitting-crypto, bitting-format          CSV and browser importers
+bitting-breach  → rustls, ureq                      the ONLY crate with a network dep
 ```
 
 Rules worth stating explicitly, because they are load-bearing rather than
 stylistic:
 
-* **`keel-crypto` and `keel-proto` are leaves.** `keel-crypto` has no filesystem,
+* **`bitting-crypto` and `bitting-proto` are leaves.** `bitting-crypto` has no filesystem,
   no network, no clock beyond timing its own calibration probe, and no platform
   code. That is what makes it fuzzable and reviewable, and it is why `mlock` lives
-  behind the `PageLocker` hook that `keel-hardening` installs rather than inside
-  the crypto crate. That install is **process-global** — `keel_hardening::init`
-  registers the locker with `keel-crypto` for the whole process — so it is the job of
-  whichever binary owns the process, not of the library being protected. `keel-agent`
-  does it at the top of `main`. This is why `keel-core` handles plaintext secrets
-  while depending on `keel-hardening` not at all: it gets the protection without the
+  behind the `PageLocker` hook that `bitting-hardening` installs rather than inside
+  the crypto crate. That install is **process-global** — `bitting_hardening::init`
+  registers the locker with `bitting-crypto` for the whole process — so it is the job of
+  whichever binary owns the process, not of the library being protected. `bitting-agent`
+  does it at the top of `main`. This is why `bitting-core` handles plaintext secrets
+  while depending on `bitting-hardening` not at all: it gets the protection without the
   edge, and an unused dependency on the crate full of `unsafe` is not free.
-* **`keel-client` may depend only on `keel-proto`.** If it ever gains
-  `keel-crypto`, `keel-format`, or `keel-core`, key material becomes reachable
+* **`bitting-client` may depend only on `bitting-proto`.** If it ever gains
+  `bitting-crypto`, `bitting-format`, or `bitting-core`, key material becomes reachable
   from four more processes and the short answer above stops being true.
-* **`keel-hardening` is the single `unsafe` boundary.** Every raw platform call in
+* **`bitting-hardening` is the single `unsafe` boundary.** Every raw platform call in
   the project lives there, so an auditor has one file to read rather than fifteen.
-* **`keel-breach` is the single network boundary**, is opt-in, and is off by
+* **`bitting-breach` is the single network boundary**, is opt-in, and is off by
   default. `cargo xtask check-network` walks the *resolved* dependency graph — not
   the manifests — and fails if an HTTP or TLS crate becomes reachable from any
   other crate.
@@ -68,18 +68,18 @@ because editing it edits a security boundary.
 
 ### The licence boundary is the same boundary
 
-Keel is `AGPL-3.0-or-later` except for two crates, and they are not chosen for
+Bitting is `AGPL-3.0-or-later` except for two crates, and they are not chosen for
 convenience — they are the two crates the layering rule above already proves cannot reach
 anything worth protecting.
 
 | Crate | Licence | Why it can afford to be |
 |---|---|---|
-| `keel-proto` | `Apache-2.0` | Serde wire types. No logic, no crypto, no I/O — a leaf by rule. There is nothing here to protect, and everything that talks to the agent needs it |
-| `keel-client` | `MPL-2.0` | May depend only on `keel-proto`, so it provably holds no key material. Third-party applications embed it; no strong copyleft would let them |
+| `bitting-proto` | `Apache-2.0` | Serde wire types. No logic, no crypto, no I/O — a leaf by rule. There is nothing here to protect, and everything that talks to the agent needs it |
+| `bitting-client` | `MPL-2.0` | May depend only on `bitting-proto`, so it provably holds no key material. Third-party applications embed it; no strong copyleft would let them |
 
 The direction of the argument matters. The licences did not come first — the dependency
-rule did, and the licences follow it. `keel-client` is publishable as embeddable *because*
-`keel-client → keel-proto` is the only edge it is allowed, and that is checked rather than
+rule did, and the licences follow it. `bitting-client` is publishable as embeddable *because*
+`bitting-client → bitting-proto` is the only edge it is allowed, and that is checked rather than
 remembered. If that rule were relaxed, the permissive licence on the crate would silently
 become a promise the code no longer keeps.
 
@@ -87,15 +87,15 @@ So the same file encodes both, and `cargo xtask check-licenses` enforces the lic
 
 * every workspace crate declares the licence `rules::expected_license` names;
 * **no crate depends on an internal crate whose licence reaches further than its own** —
-  transitively, because `keel-client` → helper → `keel-core` leaks copyleft just as
+  transitively, because `bitting-client` → helper → `bitting-core` leaks copyleft just as
   effectively as a direct edge, and is much easier to miss in review;
 * every source file carries an SPDX header matching its tree, so a file that moves between
   crates cannot keep terms that no longer apply to where it now lives.
 
-`keel-format` is the instructive case for why the permissive set is not larger. An open
+`bitting-format` is the instructive case for why the permissive set is not larger. An open
 vault format is a feature and the crate looks like an obvious candidate — but it depends on
-`keel-crypto`, so a permissive licence there would either be a lie about the combined work
-or a permissive `keel-crypto`, which is the whole vault core. The check rejects it, and the
+`bitting-crypto`, so a permissive licence there would either be a lie about the combined work
+or a permissive `bitting-crypto`, which is the whole vault core. The check rejects it, and the
 reasoning is in `xtask/src/rules.rs` next to the rule.
 
 See `COPYRIGHT` for the licence record and `LICENSE-EXCEPTION.md` for the app-store
@@ -105,15 +105,15 @@ additional permission.
 
 | Platform | Endpoint |
 |---|---|
-| Linux | `$XDG_RUNTIME_DIR/keel/agent.sock`, directory `0700`, socket `0600` |
-| macOS | `~/Library/Application Support/dev.keel/agent.sock`, same modes |
-| Windows | `\\.\pipe\dev.keel.agent-<user-sid-hash>`, DACL for the current user SID only, `PIPE_REJECT_REMOTE_CLIENTS` |
+| Linux | `$XDG_RUNTIME_DIR/bitting/agent.sock`, directory `0700`, socket `0600` |
+| macOS | `~/Library/Application Support/dev.bitting/agent.sock`, same modes |
+| Windows | `\\.\pipe\dev.bitting.agent-<user-sid-hash>`, DACL for the current user SID only, `PIPE_REJECT_REMOTE_CLIENTS` |
 
 Peer checks: `SO_PEERCRED` on Linux, `LOCAL_PEERCRED`/`LOCAL_PEERPID` on macOS,
 rejecting any peer whose UID differs from ours. On Windows the DACL is the gate and
 `GetNamedPipeClientProcessId` is used for audit attribution.
 
-The base protocol is length-prefixed JSON frames of `keel-proto` types, capped at
+The base protocol is length-prefixed JSON frames of `bitting-proto` types, capped at
 1 MiB, with a versioned hello. JSON rather than a compact binary format because the
 browser native-messaging side is already JSON and IPC debuggability is worth more
 here than bytes; the *on-disk* format uses `postcard` precisely because it is not
@@ -133,14 +133,14 @@ it is.
 
 ## Lifecycle
 
-* **Spawn.** `keel-client` connects, or spawns the agent if the socket is absent,
+* **Spawn.** `bitting-client` connects, or spawns the agent if the socket is absent,
   guarded by a lockfile. The agent exits after an idle-and-locked timeout. Service
   units ship in `packaging/` as opt-in.
 * **Unlock.** The passphrase is streamed to the agent in one frame and zeroized
   immediately after key derivation. The MCP server can never prompt for or accept a
   passphrase.
 * **State.** Clients subscribe to `StateChanged{locked|unlocked}` so the tray icon,
-  the extension badge, and `keel status` all read one truth.
+  the extension badge, and `bitting status` all read one truth.
 * **Lock.** Zeroize the master key and subkeys, drop the decrypted manifest,
   invalidate every `EntryRef`, revoke non-persisted grants, clear the clipboard if
   it still holds our value.
@@ -152,9 +152,9 @@ it is.
 
 This is the invariant list. Anything outside it is a bug.
 
-1. Inside `keel-agent`, in `SecretBytes`/`SecretString` buffers, page-locked where
+1. Inside `bitting-agent`, in `SecretBytes`/`SecretString` buffers, page-locked where
    the platform allows.
-2. Briefly inside `keel-reveal`, which receives one already-decrypted value over an
+2. Briefly inside `bitting-reveal`, which receives one already-decrypted value over an
    inherited socket and renders it in a non-capturable native window.
 3. In the OS clipboard, for the auto-clear window, when the user asked for that.
 4. In synthetic keystrokes, when the user asked for that.
@@ -190,8 +190,8 @@ Four files beside each other:
 
 | File | Contents |
 |---|---|
-| `vault.keel` | Header, encrypted manifest, encrypted records, footer hash |
-| `vault.keel.bak.{1,2,3}` | Rotated backups, each tagged with its write counter |
+| `vault.bitting` | Header, encrypted manifest, encrypted records, footer hash |
+| `vault.bitting.bak.{1,2,3}` | Rotated backups, each tagged with its write counter |
 | `vault.audit` | Hash-chained audit log, encrypted under a derived audit key |
 | `vault.state` | Last-seen write counter and hashes, mirrored into the OS keychain |
 
@@ -209,32 +209,32 @@ that shape everything else:
 ## Reading order for reviewers
 
 1. `docs/threat-model.md` — what is and is not claimed.
-2. `crates/keel-crypto/src/` — key hierarchy, in the order `secret`, `kdf`,
+2. `crates/bitting-crypto/src/` — key hierarchy, in the order `secret`, `kdf`,
    `subkeys`, `aead`.
-3. `docs/vault-format.md` then `crates/keel-format/src/` — the on-disk contract and
+3. `docs/vault-format.md` then `crates/bitting-format/src/` — the on-disk contract and
    its parser, which is the only code reading fully hostile bytes.
-4. `crates/keel-core/src/policy.rs` — the single allow/deny/ask chokepoint shared
+4. `crates/bitting-core/src/policy.rs` — the single allow/deny/ask chokepoint shared
    by the CLI, the extension, and the MCP server.
-5. `crates/keel-agent/src/` — session handling and the trust boundary.
+5. `crates/bitting-agent/src/` — session handling and the trust boundary.
 6. `xtask/src/rules.rs` — the architectural rules, as CI sees them.
 
 ## The Windows transport, specified but not written
 
-Windows is the one platform where `keel-agent` refuses to start. The error says so, and this
+Windows is the one platform where `bitting-agent` refuses to start. The error says so, and this
 section says what has to be built, because a specification is more useful than a plausible
 implementation nobody has run.
 
 **Why it is not written.** The transport needs the Windows security APIs, which means `unsafe`
-in `keel-hardening`, and the security-relevant part is a token-SID comparison — code where a
+in `bitting-hardening`, and the security-relevant part is a token-SID comparison — code where a
 mistake silently *grants* access rather than failing visibly. It cannot be compiled, let alone
-tested, on the machine Keel is currently developed on. Writing it blind and committing it as
+tested, on the machine Bitting is currently developed on. Writing it blind and committing it as
 done would put an unverified security control in the tree behind a green build, which is worse
 than an honest refusal.
 
 **The design.** It mirrors the Unix side, where the file mode is a courtesy and
 `SO_PEERCRED` is the control.
 
-* **Name.** `\\.\pipe\dev.keel.agent-<hash of the user SID>`, so two users on one machine
+* **Name.** `\\.\pipe\dev.bitting.agent-<hash of the user SID>`, so two users on one machine
   cannot collide and neither can guess the other's name from their own.
 * **Creation.** `CreateNamedPipeW` with `PIPE_ACCESS_DUPLEX`, `PIPE_TYPE_BYTE`,
   `PIPE_READMODE_BYTE`, `PIPE_WAIT`, and — importantly —
@@ -257,7 +257,7 @@ than an honest refusal.
   the agent's subsequent file access run as somebody else.
 * **Attribution only:** `GetNamedPipeClientProcessId` for the audit log and approval dialogs.
   A pid is a hint, not a capability — pids are reused, so nothing may be authorised on one.
-* **Client side.** `keel-client` opens the pipe with `CreateFileW` and needs
+* **Client side.** `bitting-client` opens the pipe with `CreateFileW` and needs
   `wait_for_socket`'s equivalent: wait until the pipe can actually be opened, not until a name
   exists. The Unix version originally waited for a path to exist and stranded users after a
   crash; the Windows version should not repeat it.

@@ -6,15 +6,15 @@
 
 # The cryptographic core and the on-disk format: a mistake here is
 # unrecoverable for anyone who already saved a vault.
-/crates/keel-crypto/        @mdferdousalam
-/crates/keel-format/        @mdferdousalam
+/crates/bitting-crypto/        @mdferdousalam
+/crates/bitting-format/        @mdferdousalam
 
 # The only crate permitted `unsafe`.
-/crates/keel-hardening/     @mdferdousalam
+/crates/bitting-hardening/     @mdferdousalam
 
 # The only process that holds unlocked keys, plus the policy chokepoint.
-/crates/keel-agent/         @mdferdousalam
-/crates/keel-core/          @mdferdousalam
+/crates/bitting-agent/         @mdferdousalam
+/crates/bitting-core/          @mdferdousalam
 
 # Editing these edits a security boundary that CI enforces.
 /xtask/src/rules.rs         @mdferdousalam
