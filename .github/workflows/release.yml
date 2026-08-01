@@ -59,6 +59,25 @@ jobs:
             libglib2.0-dev
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Link the binaries before testing. Not redundant with `cargo test`.
+      #
+      # `cargo test --workspace` does not build every bin in the workspace. It builds a
+      # package's bin when that package has integration tests that might exec it, and
+      # `bitting-agent` is the one shipped crate with no `tests/` directory — so its library
+      # gets built for dependents and its executable never gets linked.
+      #
+      # The CLI end-to-end tests in `bitting-cli/tests/e2e.rs` spawn that executable by path.
+      # Without this step every one of them fails with "could not start the agent at
+      # target/debug/bitting-agent", which is what the first run of this workflow did.
+      #
+      # Verified by reproducing it in a clean target directory: after
+      # `cargo test --workspace --no-run`, the directory holds bitting, bitting-mcp,
+      # bitting-native-host and bitting-desktop — every crate that has a tests/ directory —
+      # and no bitting-agent. `cargo build --workspace` produces it.
+      #
+      # ci.yml's test job has had this same step all along, which is exactly why CI stayed
+      # green while this workflow could not have completed. The two now match.
+      - run: cargo build --workspace --locked
       - run: cargo test --workspace --locked
       # The architectural gates are release blockers, not advisory.
       - run: cargo xtask check
