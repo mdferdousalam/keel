@@ -19,19 +19,33 @@ jobs:
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required by comment-summary-in-pr; without it the action warns and drops the summary.
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: low
           comment-summary-in-pr: on-failure
-          # Mirrors deny.toml's allow list. Kept in step with it by hand, which is a real
-          # cost — the alternative is a licence policy enforced in one place and silently
-          # not the other.
-          allow-licenses: >-
-            AGPL-3.0-or-later, Apache-2.0, Apache-2.0 WITH LLVM-exception, MIT, MIT-0,
-            BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, Zlib, MPL-2.0, CC0-1.0,
-            Unlicense, BSL-1.0
+          # A denylist, not an allowlist.
+          #
+          # An allowlist mirroring deny.toml was the obvious thing and it fails immediately:
+          # this check covers every ecosystem in the diff, including GitHub Actions, and
+          # actions carry no licence metadata in the dependency graph. Their licence resolves
+          # to unknown, unknown is not on the allowlist, and the run fails with "detected
+          # incompatible licenses" over actions this repository already pins by SHA.
+          #
+          # So the licence allowlist stays in deny.toml, which is Rust-only and authoritative,
+          # and this lists only what genuinely cannot be combined into an AGPL work. The value
+          # here is fail-on-severity: catching a vulnerable dependency in the diff that
+          # introduced it, rather than on the next nightly audit.
+          deny-licenses: >-
+            GPL-2.0-only, LGPL-2.0-only, SSPL-1.0, BUSL-1.1,
+            Elastic-2.0, CC-BY-NC-4.0, CC-BY-NC-SA-4.0
 
   # ---------------------------------------------------------------------------
   # Snyk. Free for open source, but it needs an account and a repository token.

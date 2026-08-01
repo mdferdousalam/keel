@@ -288,13 +288,17 @@ jobs:
           set -euo pipefail
           nfpm_version=2.43.1
           base="https://github.com/goreleaser/nfpm/releases/download/v${nfpm_version}"
-          curl -fsSL -o nfpm.tar.gz "${base}/nfpm_${nfpm_version}_Linux_x86_64.tar.gz"
+          # Kept under the asset's own name: `sha256sum -c` opens the path recorded in the
+          # manifest, so saving to nfpm.tar.gz makes it look for a file that is not there and
+          # fail with "FAILED open or read" — which looks like a checksum mismatch and is not.
+          archive="nfpm_${nfpm_version}_Linux_x86_64.tar.gz"
+          curl -fsSL -o "$archive" "${base}/${archive}"
           # Verified against the release's own published checksums file rather than a hash
           # copied in here, so bumping the version does not mean hand-editing a digest — the
           # usual way a pinned hash quietly becomes a lie.
           curl -fsSL -o nfpm_checksums.txt "${base}/checksums.txt"
-          grep " nfpm_${nfpm_version}_Linux_x86_64.tar.gz\$" nfpm_checksums.txt | sha256sum -c -
-          tar xzf nfpm.tar.gz nfpm
+          grep " ${archive}\$" nfpm_checksums.txt | sha256sum -c -
+          tar xzf "$archive" nfpm
           sudo install -m0755 nfpm /usr/local/bin/nfpm
           nfpm --version
 
