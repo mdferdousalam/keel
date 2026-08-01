@@ -145,6 +145,19 @@ jobs:
             --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo
           TZ: UTC
           LC_ALL: C
+          # blake3 compiles C, so cross-building needs a C toolchain for the target. Ubuntu
+          # packages `musl-tools`, which provides musl-gcc for x86_64 only — there is no apt
+          # package named aarch64-linux-musl-gcc, which is the tool cc-rs went looking for and
+          # did not find on the first run of this workflow:
+          #
+          #   error occurred in cc-rs: failed to find tool "aarch64-linux-musl-gcc"
+          #
+          # These variables are target-scoped, so they are inert for every other entry in the
+          # matrix. The aarch64 gnu cross-compiler acts as compiler and linker driver; the
+          # musl libc itself still comes from the Rust target and is statically linked.
+          CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
+          AR_aarch64_unknown_linux_musl: aarch64-linux-gnu-ar
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
         run: |
           # Every binary the packaging in packaging/ installs. Building only bitting-cli and
           # bitting-agent shipped .deb and PKGBUILD files that referenced bitting-mcp and
@@ -207,10 +220,24 @@ jobs:
             name="bitting-${version}-${target}.zip"
             exes=("${binaries[@]/%/.exe}")
             (cd "$bindir" && zip -X -q "../../../${outdir}/${name}" "${exes[@]}")
+          elif [[ "$target" == *darwin* ]]; then
+            name="bitting-${version}-${target}.tar.gz"
+            # Plain BSD tar. macOS does not ship GNU tar, and the deterministic flags used
+            # below are GNU-only — the first run of this workflow died here on
+            # "tar: Option --sort=name is not supported".
+            #
+            # Nothing is lost by omitting them. Those flags exist to make the archive
+            # byte-identical between builds, and the darwin targets are already marked
+            # `reproducible: false` in the matrix because `codesign` embeds a timestamp. An
+            # archive of non-reproducible binaries cannot be reproducible, so pinning its
+            # metadata would buy a property the contents cannot have. Installing gnu-tar to
+            # apply them would be ceremony.
+            tar -czf "${outdir}/${name}" -C "$bindir" "${binaries[@]}"
           else
             name="bitting-${version}-${target}.tar.gz"
             # Fixed ownership, sorted names, and a pinned mtime: tar metadata is otherwise a
-            # rich source of build-to-build differences.
+            # rich source of build-to-build differences. GNU tar only, which is what the
+            # Linux and Windows-cross runners have — see the darwin branch above.
             tar --sort=name \
                 --owner=0 --group=0 --numeric-owner \
                 --mtime="@${SOURCE_DATE_EPOCH:-0}" \
@@ -393,12 +420,20 @@ jobs:
           TZ: UTC
           LC_ALL: C
         run: |
+          # All four shipped binaries, matching the build job. This checked only `bitting`
+          # and `bitting-agent`, so bitting-mcp and bitting-native-host were published with
+          # their reproducibility never actually verified — the same list drifting apart that
+          # left them out of the archive and out of rebuild.yml.
           cargo build --locked --profile release-repro \
-            --target x86_64-unknown-linux-musl -p bitting-cli -p bitting-agent
+            --target x86_64-unknown-linux-musl \
+            -p bitting-cli -p bitting-agent -p bitting-mcp -p bitting-native-host
       - name: Hash
         run: |
-          sha256sum target/x86_64-unknown-linux-musl/release-repro/bitting \
-                    target/x86_64-unknown-linux-musl/release-repro/bitting-agent \
+          bindir=target/x86_64-unknown-linux-musl/release-repro
+          sha256sum "$bindir/bitting" \
+                    "$bindir/bitting-agent" \
+                    "$bindir/bitting-mcp" \
+                    "$bindir/bitting-native-host" \
             | sed 's|target/.*/||' > hashes-${{ matrix.attempt }}.txt
           cat hashes-${{ matrix.attempt }}.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
