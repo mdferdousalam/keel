@@ -1,0 +1,33 @@
+[package]
+name = "bitting-native-host"
+description = "Bitting browser native-messaging host. A dumb pipe to the agent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "bitting-native-host"
+path = "src/main.rs"
+
+[lib]
+name = "bitting_native_host"
+path = "src/lib.rs"
+
+# Note what is absent: bitting-crypto, bitting-core, bitting-format, bitting-store. This process is
+# launched by the browser and is the component closest to hostile input, so it is the one
+# that knows the least. `cargo xtask check-layering` fails the build if that changes.
+[dependencies]
+bitting-client = { workspace = true }
+bitting-proto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = { workspace = true }

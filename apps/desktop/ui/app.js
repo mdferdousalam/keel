@@ -2,7 +2,7 @@
 // Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
 
 /**
- * Keel's window.
+ * Bitting's window.
  *
  * Two rules shape everything here, and both are about what this file is *not* allowed to
  * have.
@@ -80,7 +80,7 @@ function toast(message) {
 
 /** Call a Tauri command, surfacing failures instead of swallowing them. */
 async function call(command, args = {}) {
-  if (!invoke) throw new Error("this window is not connected to the Keel shell");
+  if (!invoke) throw new Error("this window is not connected to the Bitting shell");
   return invoke(command, args);
 }
 
@@ -161,7 +161,7 @@ function unlockView() {
   };
 
   const form = el("div", { class: "unlock" }, [
-    el("div", { class: "mark", text: "Keel" }),
+    el("div", { class: "mark", text: "Bitting" }),
     el(
       "div",
       { class: "note" },
@@ -189,7 +189,7 @@ function header() {
   const locksIn =
     status?.locks_in != null ? `locks in ${Math.max(0, Math.round(status.locks_in))}s` : "";
   return el("header", { class: "bar" }, [
-    el("span", { class: "brand", text: "Keel" }),
+    el("span", { class: "brand", text: "Bitting" }),
     el("span", { class: "state", text: status ? `${status.entry_count} · ${locksIn}` : "" }),
     el("span", { class: "spacer" }),
     !status?.hardened &&
@@ -571,7 +571,7 @@ function accessView() {
       el("div", { class: "title", text: "Connected agents and browsers" }),
       el("div", {
         class: "note",
-        text: "Access is granted from the command line with `keel grant`, and can be revoked here at any time. Revoking always works, even mid-request.",
+        text: "Access is granted from the command line with `bitting grant`, and can be revoked here at any time. Revoking always works, even mid-request.",
       }),
       !grants || grants.length === 0
         ? el("div", { class: "note", text: "Nothing has been granted access." })
@@ -806,7 +806,7 @@ async function start() {
         el("div", { class: "title", text: "Not connected" }),
         el("div", {
           class: "note",
-          text: "This page is being viewed outside the Keel application, so it has no way to reach the agent.",
+          text: "This page is being viewed outside the Bitting application, so it has no way to reach the agent.",
         }),
       ]))
     );
@@ -817,7 +817,7 @@ async function start() {
   } catch (error) {
     document.getElementById("app").replaceChildren(
       el("div", { class: "centre" }, el("div", { class: "panel stack" }, [
-        el("div", { class: "title", text: "Cannot reach the Keel agent" }),
+        el("div", { class: "title", text: "Cannot reach the Bitting agent" }),
         el("div", { class: "note", text: String(error) }),
         el("button", { class: "primary", text: "Try again", onclick: () => start() }),
       ]))

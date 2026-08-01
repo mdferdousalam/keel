@@ -2,7 +2,7 @@
 // Additional permission for app-store distribution: see LICENSE-EXCEPTION.md
 
 /**
- * The Keel popup.
+ * The Bitting popup.
  *
  * The list of entries offered here is the *only* place a credential can be chosen, and a
  * click here is the only thing that causes one to be fetched. That is the gesture gate: the
@@ -37,7 +37,7 @@ const send = (message) =>
 function shell(originLabel, body) {
   root.replaceChildren(
     el("header", {}, [
-      el("span", { class: "brand", text: "Keel" }),
+      el("span", { class: "brand", text: "Bitting" }),
       el("span", { class: "origin", text: originLabel ?? "" }),
     ]),
     body
@@ -56,9 +56,9 @@ async function render() {
     shell(
       null,
       message(
-        reply?.error ?? "Keel could not be reached.",
+        reply?.error ?? "Bitting could not be reached.",
         reply?.code === "host_unavailable"
-          ? el("div", { class: "note", text: "Run `keel setup-browser`, then reload this extension." })
+          ? el("div", { class: "note", text: "Run `bitting setup-browser`, then reload this extension." })
           : null
       )
     );
@@ -68,7 +68,7 @@ async function render() {
   const { origin, state, entries, tabId } = reply.result;
 
   if (!origin) {
-    shell(null, message("Keel only fills passwords on http and https pages."));
+    shell(null, message("Bitting only fills passwords on http and https pages."));
     return;
   }
   if (state !== "unlocked") {
@@ -76,11 +76,11 @@ async function render() {
       origin,
       message(
         state === "no_vault"
-          ? "No Keel vault on this machine yet. Open Keel to create one."
-          : "Your vault is locked. Open Keel and unlock it.",
+          ? "No Bitting vault on this machine yet. Open Bitting to create one."
+          : "Your vault is locked. Open Bitting and unlock it.",
         // Deliberately not a button that unlocks. A page can cause this popup's data to be
         // fetched, and an unlock prompt reachable from page activity is a phishing primitive.
-        el("div", { class: "note", text: "Keel will not ask for your passphrase here." })
+        el("div", { class: "note", text: "Bitting will not ask for your passphrase here." })
       )
     );
     return;
@@ -109,7 +109,7 @@ async function render() {
               if (outcome?.ok) {
                 window.close();
               } else {
-                shell(origin, message(outcome?.error ?? "Keel could not fill this page."));
+                shell(origin, message(outcome?.error ?? "Bitting could not fill this page."));
               }
             },
           },

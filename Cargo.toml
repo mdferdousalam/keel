@@ -2,20 +2,20 @@
 resolver = "2"
 members = [
     "apps/desktop/src-tauri",
-    "crates/keel-crypto",
-    "crates/keel-format",
-    "crates/keel-hardening",
-    "crates/keel-store",
-    "crates/keel-core",
-    "crates/keel-proto",
-    "crates/keel-agent",
-    "crates/keel-client",
-    "crates/keel-reveal",
-    "crates/keel-cli",
-    "crates/keel-mcp",
-    "crates/keel-native-host",
-    "crates/keel-import",
-    "crates/keel-breach",
+    "crates/bitting-crypto",
+    "crates/bitting-format",
+    "crates/bitting-hardening",
+    "crates/bitting-store",
+    "crates/bitting-core",
+    "crates/bitting-proto",
+    "crates/bitting-agent",
+    "crates/bitting-client",
+    "crates/bitting-reveal",
+    "crates/bitting-cli",
+    "crates/bitting-mcp",
+    "crates/bitting-native-host",
+    "crates/bitting-import",
+    "crates/bitting-breach",
     "xtask",
 ]
 # apps/desktop (Tauri) keeps its own workspace; it is added in Phase 4.
@@ -26,17 +26,17 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
 # AGPL rather than GPL because the network clause is the whole point: GPLv3 does not
-# reach someone who runs Keel as a hosted service, and a sync service is the obvious
+# reach someone who runs Bitting as a hosted service, and a sync service is the obvious
 # thing to run. Two crates deliberately opt out of this default — see the `license`
-# overrides in keel-proto (Apache-2.0) and keel-client (MPL-2.0), and the reasoning in
+# overrides in bitting-proto (Apache-2.0) and bitting-client (MPL-2.0), and the reasoning in
 # `docs/architecture.md`. `cargo xtask check-licenses` enforces that the exceptions
 # stay exceptions.
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/mdferdousalam/keel"
-homepage = "https://github.com/mdferdousalam/keel"
+repository = "https://github.com/mdferdousalam/bitting"
+homepage = "https://github.com/mdferdousalam/bitting"
 # The named holder is load-bearing, not courtesy: copyleft you cannot attribute is
 # copyleft you cannot enforce. See `COPYRIGHT`.
-authors = ["Md Ferdous Alam <mdferdousalam1989@yahoo.com>", "Keel contributors"]
+authors = ["Md Ferdous Alam <mdferdousalam1989@yahoo.com>", "Bitting contributors"]
 
 # ---------------------------------------------------------------------------
 # Shared dependency versions.
@@ -50,21 +50,21 @@ authors = ["Md Ferdous Alam <mdferdousalam1989@yahoo.com>", "Keel contributors"]
 [workspace.dependencies]
 # --- internal crates ---
 # Declared here with both a path and a version so each member can say
-# `keel-crypto = { workspace = true }` and the versions stay in one place.
+# `bitting-crypto = { workspace = true }` and the versions stay in one place.
 #
 # The version is not decoration. A path dependency without one cannot be published, and
-# `cargo install keel-cli` is a stated distribution channel — cargo-deny catches this as a
+# `cargo install bitting-cli` is a stated distribution channel — cargo-deny catches this as a
 # wildcard dependency, which is what it is: a build that resolves to whatever is there.
-keel-crypto = { path = "crates/keel-crypto", version = "0.1.0" }
-keel-format = { path = "crates/keel-format", version = "0.1.0" }
-keel-hardening = { path = "crates/keel-hardening", version = "0.1.0" }
-keel-store = { path = "crates/keel-store", version = "0.1.0" }
-keel-core = { path = "crates/keel-core", version = "0.1.0" }
-keel-proto = { path = "crates/keel-proto", version = "0.1.0" }
-keel-agent = { path = "crates/keel-agent", version = "0.1.0" }
-keel-client = { path = "crates/keel-client", version = "0.1.0" }
-keel-import = { path = "crates/keel-import", version = "0.1.0" }
-keel-breach = { path = "crates/keel-breach", version = "0.1.0" }
+bitting-crypto = { path = "crates/bitting-crypto", version = "0.1.0" }
+bitting-format = { path = "crates/bitting-format", version = "0.1.0" }
+bitting-hardening = { path = "crates/bitting-hardening", version = "0.1.0" }
+bitting-store = { path = "crates/bitting-store", version = "0.1.0" }
+bitting-core = { path = "crates/bitting-core", version = "0.1.0" }
+bitting-proto = { path = "crates/bitting-proto", version = "0.1.0" }
+bitting-agent = { path = "crates/bitting-agent", version = "0.1.0" }
+bitting-client = { path = "crates/bitting-client", version = "0.1.0" }
+bitting-import = { path = "crates/bitting-import", version = "0.1.0" }
+bitting-breach = { path = "crates/bitting-breach", version = "0.1.0" }
 
 # --- crypto primitives ---
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }

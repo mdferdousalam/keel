@@ -1,6 +1,6 @@
 # Giving an AI agent access to your vault
 
-Keel can expose your vault to an AI agent through the Model Context Protocol. This document
+Bitting can expose your vault to an AI agent through the Model Context Protocol. This document
 explains what an agent can and cannot do, and why.
 
 ## The claim
@@ -15,29 +15,29 @@ That is a strong claim, so here is exactly what makes it true, and where it stop
 The insight the whole design rests on: an agent does not need to *read* your password, it needs
 your password to be *used*.
 
-So the tool an agent should reach for is `use_secret`. Keel applies the password itself —
+So the tool an agent should reach for is `use_secret`. Bitting applies the password itself —
 copying it, or typing it — and returns only a status. The plaintext never reaches the model, so
 it never reaches the model's context, its logs, or whatever the model was tricked into sending
 it to.
 
 `reveal_secret`, the one tool that returns plaintext, is **disabled by default** for AI agents.
-When you turn it on, every single request still needs your approval in the Keel window, with
-the entry and destination shown as Keel knows them rather than as the agent described them.
+When you turn it on, every single request still needs your approval in the Bitting window, with
+the entry and destination shown as Bitting knows them rather than as the agent described them.
 
 ## Setting it up
 
 ```json
 {
   "mcpServers": {
-    "keel": {
-      "command": "keel-mcp",
-      "env": { "KEEL_MCP_CLIENT_ID": "claude-code" }
+    "bitting": {
+      "command": "bitting-mcp",
+      "env": { "BITTING_MCP_CLIENT_ID": "claude-code" }
     }
   }
 }
 ```
 
-Set `KEEL_MCP_CLIENT_ID` to something recognisable. It appears in approval prompts and in the
+Set `BITTING_MCP_CLIENT_ID` to something recognisable. It appears in approval prompts and in the
 audit log, and "claude-code wants your password" is far more useful to you than "an AI agent
 wants your password".
 
@@ -45,10 +45,10 @@ An agent starts with **no access at all**. You grant it explicitly:
 
 ```sh
 # Metadata and use, limited to work entries, for half an hour
-keel grant claude-code --scope metadata --scope use --tag 'work/*' --minutes 30
+bitting grant claude-code --scope metadata --scope use --tag 'work/*' --minutes 30
 
-keel grants            # what is currently granted
-keel revoke claude-code
+bitting grants            # what is currently granted
+bitting revoke claude-code
 ```
 
 Grants expire, and they die when the vault locks. There is no permanent grant.
@@ -63,7 +63,7 @@ Grants expire, and they die when the vault locks. There is no permanent grant.
 | `use_secret` | **Apply** a password without receiving it. |
 | `reveal_secret` | Receive plaintext. Off by default; needs your approval each time. |
 | `generate_password` | Generate a password. Needs no vault access. |
-| `create_entry` | Create an entry, with a password Keel generates and does not disclose. |
+| `create_entry` | Create an entry, with a password Bitting generates and does not disclose. |
 | `rotate_secret` | Replace a password. The old one is kept in history. |
 | `update_entry` | Change non-secret fields. |
 | `trash_entry` | Move to the trash. Reversible. |
@@ -93,11 +93,11 @@ the limit too.
 **Agent text is data, never instructions.** Anything an agent writes — the `reason` on a reveal
 request — is stripped of control characters, escape sequences, bidirectional overrides, and
 zero-width characters, truncated, and shown as inert plain text in a box labelled as coming from
-the agent. It is never styled as though Keel were saying it. An agent cannot make a prompt look
+the agent. It is never styled as though Bitting were saying it. An agent cannot make a prompt look
 like a system message.
 
 **Approval prompts show ground truth.** The entry title and the destination come from the vault
-and from Keel's own resolution, never from the agent's description. An agent cannot say "this is
+and from Bitting's own resolution, never from the agent's description. An agent cannot say "this is
 for github.com" while the password goes elsewhere. The confirm button is also unarmed for a
 moment, so a prompt cannot be dismissed reflexively or clicked by a synthetic event.
 
@@ -122,7 +122,7 @@ Being honest about the boundary, because a claim without one is marketing:
   and `--all-entries` is deliberately explicit rather than the default.
 - **This says nothing about the agent's own security.** A compromised agent with `use_secret`
   can still log *itself* into your accounts. That is precisely why grants are narrow and
-  short-lived, and why `keel revoke` exists.
+  short-lived, and why `bitting revoke` exists.
 
 ## Recommended configuration
 

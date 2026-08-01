@@ -1,5 +1,5 @@
 [package]
-name = "keel-fuzz"
+name = "bitting-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -15,8 +15,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-keel-crypto = { path = "../crates/keel-crypto" }
-keel-format = { path = "../crates/keel-format" }
+bitting-crypto = { path = "../crates/bitting-crypto" }
+bitting-format = { path = "../crates/bitting-format" }
 
 [profile.release]
 debug = 1

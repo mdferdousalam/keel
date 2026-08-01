@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Keel",
+  "name": "Bitting",
   "version": "0.1.0",
-  "description": "Fill passwords from your local Keel vault. No account, no server, no telemetry.",
+  "description": "Fill passwords from your local Bitting vault. No account, no server, no telemetry.",
   "minimum_chrome_version": "116",
 
   "permissions": [
@@ -14,7 +14,7 @@
   "host_permissions": [],
 
   "action": {
-    "default_title": "Keel",
+    "default_title": "Bitting",
     "default_popup": "popup.html",
     "default_icon": { "128": "icon.png" }
   },

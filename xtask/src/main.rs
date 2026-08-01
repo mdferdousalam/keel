@@ -66,7 +66,7 @@ Commands:
 /// looks: without it, `cargo metadata` returns the **union** of every platform's
 /// dependencies, so a crate with an Android-only HTTP client appears to link HTTP
 /// everywhere. `tauri` is exactly that case — it depends on `reqwest`, gated to Android and
-/// non-macOS Apple targets, neither of which Keel builds for. Checking the union reported a
+/// non-macOS Apple targets, neither of which Bitting builds for. Checking the union reported a
 /// network stack in the desktop app that no shipped binary contains.
 ///
 /// Passing `None` keeps the union, which is the right choice for the layering check: an
@@ -102,8 +102,8 @@ fn load_metadata() -> Result<Metadata, String> {
 
 /// Enforce the crate dependency direction.
 ///
-/// The rule that matters most: `keel-client` must not depend on `keel-crypto`,
-/// `keel-format`, or `keel-core`. Only `keel-agent` links the cryptographic core
+/// The rule that matters most: `bitting-client` must not depend on `bitting-crypto`,
+/// `bitting-format`, or `bitting-core`. Only `bitting-agent` links the cryptographic core
 /// at runtime, which is what lets "where can key material be?" have a short
 /// answer during review. Every other process is a pipe for already-authorized
 /// data.
@@ -178,11 +178,11 @@ fn check_layering() -> Result<(), String> {
 /// stack arriving three levels down through a new transitive dependency fails CI
 /// instead of shipping.
 ///
-/// `keel-breach` is exempt by design: it is the opt-in, off-by-default breach
+/// `bitting-breach` is exempt by design: it is the opt-in, off-by-default breach
 /// checker and the only crate permitted to reach the internet.
 fn check_network() -> Result<(), String> {
     let mut failures = Vec::new();
-    // Checked once per platform Keel ships, rather than once over the union of all
+    // Checked once per platform Bitting ships, rather than once over the union of all
     // platforms. The union answers a question nobody asked — "could this crate reach HTTP on
     // *some* target, including ones we never build?" — and answering it produced a false
     // report of a network stack in the desktop app.
@@ -259,7 +259,7 @@ fn check_network_on(
                     "`{root}` can reach the network stack `{banned}` on {triple} (pulled in \
                      via `{via}`).\n    \
                      The vault core must not link an HTTP or TLS client. If this is only \
-                     needed at build time, in tests, or on a platform Keel does not ship, \
+                     needed at build time, in tests, or on a platform Bitting does not ship, \
                      scope it so it does not appear in the normal dependency graph for a \
                      shipped target."
                 ));
@@ -275,10 +275,10 @@ fn check_network_on(
 
 /// Enforce the licence boundary.
 ///
-/// Keel is AGPL-3.0-or-later except for two crates that are permissive on purpose, so
+/// Bitting is AGPL-3.0-or-later except for two crates that are permissive on purpose, so
 /// that the protocol can be spoken and the client can be embedded. Both exceptions rest
 /// on a single property: nothing copyleft sits underneath them. A dependency's licence
-/// governs the combined work, so one AGPL crate added below `keel-client` would quietly
+/// governs the combined work, so one AGPL crate added below `bitting-client` would quietly
 /// make every application embedding it AGPL — the manifest would still promise MPL, and
 /// the promise would be false.
 ///
@@ -364,7 +364,7 @@ fn check_declared_licenses(
 /// Check that no crate depends on an internal crate whose licence reaches further.
 ///
 /// The walk is transitive, because the leak this prevents does not have to be one edge
-/// long: `keel-client` → some helper → `keel-core` would be just as fatal to the
+/// long: `bitting-client` → some helper → `bitting-core` would be just as fatal to the
 /// embeddability promise as a direct edge, and rather harder to notice in review.
 ///
 /// Dev-dependencies are skipped, matching the layering check — they do not ship, so they

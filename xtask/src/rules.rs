@@ -15,75 +15,75 @@
 ///
 /// The load-bearing entries:
 ///
-/// * `keel-crypto` and `keel-proto` depend on **nothing** internal. They are the
+/// * `bitting-crypto` and `bitting-proto` depend on **nothing** internal. They are the
 ///   two leaves, and they stay that way.
-/// * `keel-client` may depend only on `keel-proto`. It must never gain
-///   `keel-crypto`, `keel-format`, or `keel-core` — that is what keeps key
+/// * `bitting-client` may depend only on `bitting-proto`. It must never gain
+///   `bitting-crypto`, `bitting-format`, or `bitting-core` — that is what keeps key
 ///   material out of the CLI, the MCP server, the native messaging host, and the
 ///   desktop shell.
-/// * `keel-agent` is the only crate that may depend on `keel-core`, and therefore
+/// * `bitting-agent` is the only crate that may depend on `bitting-core`, and therefore
 ///   the only process that links the cryptographic core at runtime.
 pub fn allowed_internal_deps(crate_name: &str) -> Option<&'static [&'static str]> {
     let deps: &[&str] = match crate_name {
         // ---- leaves -------------------------------------------------------
         // The cryptographic core answers to nobody. No I/O, no platform, no
         // protocol types: that is what makes it auditable and fuzzable.
-        "keel-crypto" => &[],
+        "bitting-crypto" => &[],
         // Wire types only. Shared by the agent and every client, so a dependency
         // here would leak into everything.
-        "keel-proto" => &[],
-        // Only crate allowed `unsafe`. Depends on keel-crypto solely to install
+        "bitting-proto" => &[],
+        // Only crate allowed `unsafe`. Depends on bitting-crypto solely to install
         // the PageLocker hook.
-        "keel-hardening" => &["keel-crypto"],
+        "bitting-hardening" => &["bitting-crypto"],
 
         // ---- vault core ---------------------------------------------------
-        "keel-format" => &["keel-crypto"],
-        "keel-store" => &["keel-crypto", "keel-format"],
-        // Deliberately without `keel-hardening`. It was listed and depended on here for the
-        // PageLocker hook, but nothing in keel-core ever referenced it: `keel_hardening::init`
-        // installs the locker into keel-crypto *process-globally*, so the binary that owns the
-        // process does it — `keel-agent`, at the top of main, which is where that function's
-        // own documentation says it belongs. keel-core gets the protection either way, so the
+        "bitting-format" => &["bitting-crypto"],
+        "bitting-store" => &["bitting-crypto", "bitting-format"],
+        // Deliberately without `bitting-hardening`. It was listed and depended on here for the
+        // PageLocker hook, but nothing in bitting-core ever referenced it: `bitting_hardening::init`
+        // installs the locker into bitting-crypto *process-globally*, so the binary that owns the
+        // process does it — `bitting-agent`, at the top of main, which is where that function's
+        // own documentation says it belongs. bitting-core gets the protection either way, so the
         // dependency bought nothing and widened the graph of the crate that handles plaintext.
-        "keel-core" => &["keel-crypto", "keel-format", "keel-store"],
+        "bitting-core" => &["bitting-crypto", "bitting-format", "bitting-store"],
 
         // ---- the one privileged process -----------------------------------
         // The agent is the only process that opens the vault file, so it is the only one
         // that needs the storage layer as well as the cryptographic core. Concentrating
         // both here is the point: it keeps "which code can touch key material or vault
         // bytes?" a question with a one-binary answer.
-        "keel-agent" => &[
-            "keel-core",
-            "keel-crypto",
-            "keel-format",
-            "keel-hardening",
-            "keel-proto",
-            "keel-store",
+        "bitting-agent" => &[
+            "bitting-core",
+            "bitting-crypto",
+            "bitting-format",
+            "bitting-hardening",
+            "bitting-proto",
+            "bitting-store",
         ],
 
         // ---- clients: no crypto, no vault format --------------------------
-        "keel-client" => &["keel-proto"],
-        "keel-cli" => &["keel-client", "keel-proto", "keel-import"],
-        "keel-mcp" => &["keel-client", "keel-proto"],
+        "bitting-client" => &["bitting-proto"],
+        "bitting-cli" => &["bitting-client", "bitting-proto", "bitting-import"],
+        "bitting-mcp" => &["bitting-client", "bitting-proto"],
         // The desktop shell. Same rule as every other client: wire types and the client
         // library, nothing that can decrypt. The webview it hosts never receives a secret
         // at all, so the GUI is two boundaries away from key material rather than one.
-        "keel-desktop" => &["keel-client", "keel-proto"],
-        "keel-native-host" => &["keel-client", "keel-proto"],
+        "bitting-desktop" => &["bitting-client", "bitting-proto"],
+        "bitting-native-host" => &["bitting-client", "bitting-proto"],
         // The reveal overlay receives one already-decrypted secret over an
         // inherited socket. It deliberately cannot open a vault itself.
         // The overlay receives one already-decrypted secret on stdin from the agent. It
-        // deliberately cannot open a vault. `keel-hardening` is here for one call — excluding
+        // deliberately cannot open a vault. `bitting-hardening` is here for one call — excluding
         // the window from screen capture — because that needs `unsafe`, which lives there.
-        "keel-reveal" => &["keel-hardening", "keel-proto"],
+        "bitting-reveal" => &["bitting-hardening", "bitting-proto"],
 
         // ---- leaf helpers -------------------------------------------------
         // Importers build plaintext entries for the agent to encrypt. They need
-        // the entry types from keel-format but never touch keys or vault files.
-        "keel-import" => &["keel-crypto", "keel-format"],
+        // the entry types from bitting-format but never touch keys or vault files.
+        "bitting-import" => &["bitting-crypto", "bitting-format"],
         // The only crate permitted a network stack. Kept dependency-free
         // internally so it cannot drag TLS into anything else.
-        "keel-breach" => &[],
+        "bitting-breach" => &[],
 
         // ---- tooling ------------------------------------------------------
         "xtask" => &[],
@@ -105,14 +105,14 @@ pub const AGPL: &str = "AGPL-3.0-or-later";
 /// Two crates are permissive on purpose, and the reason is worth stating where someone
 /// will read it before changing it:
 ///
-/// * `keel-proto` (Apache-2.0) is the protocol definition — serde types, no logic, no
+/// * `bitting-proto` (Apache-2.0) is the protocol definition — serde types, no logic, no
 ///   crypto. Copyleft here would protect nothing and would stop anything from speaking
 ///   to the agent.
-/// * `keel-client` (MPL-2.0) is the crate a third-party application embeds. No strong
+/// * `bitting-client` (MPL-2.0) is the crate a third-party application embeds. No strong
 ///   copyleft permits that; MPL's per-file copyleft is the narrowest licence that does.
 ///
 /// What makes those two safe is the layering rule in [`allowed_internal_deps`]: neither
-/// may depend on `keel-crypto`, `keel-format`, `keel-store`, or `keel-core`, so the
+/// may depend on `bitting-crypto`, `bitting-format`, `bitting-store`, or `bitting-core`, so the
 /// permissive surface provably contains no key material, no crypto, and no vault format.
 /// Widening this list without checking that closure would hand away the vault core.
 ///
@@ -121,13 +121,25 @@ pub const AGPL: &str = "AGPL-3.0-or-later";
 pub fn expected_license(crate_name: &str) -> Option<&'static str> {
     Some(match crate_name {
         // ---- the deliberate exceptions ------------------------------------
-        "keel-proto" => "Apache-2.0",
-        "keel-client" => "MPL-2.0",
+        "bitting-proto" => "Apache-2.0",
+        "bitting-client" => "MPL-2.0",
 
         // ---- everything else ----------------------------------------------
-        "keel-crypto" | "keel-format" | "keel-hardening" | "keel-store" | "keel-core"
-        | "keel-agent" | "keel-reveal" | "keel-cli" | "keel-mcp" | "keel-native-host"
-        | "keel-import" | "keel-breach" | "keel-desktop" | "keel-fuzz" | "xtask" => AGPL,
+        "bitting-crypto"
+        | "bitting-format"
+        | "bitting-hardening"
+        | "bitting-store"
+        | "bitting-core"
+        | "bitting-agent"
+        | "bitting-reveal"
+        | "bitting-cli"
+        | "bitting-mcp"
+        | "bitting-native-host"
+        | "bitting-import"
+        | "bitting-breach"
+        | "bitting-desktop"
+        | "bitting-fuzz"
+        | "xtask" => AGPL,
 
         _ => return None,
     })
@@ -137,8 +149,8 @@ pub fn expected_license(crate_name: &str) -> Option<&'static str> {
 ///
 /// The ordering is the whole point. A crate may depend on an internal crate whose licence
 /// reaches the same distance or less, never further — because a dependency's licence
-/// governs the combined work, so an AGPL crate underneath `keel-client` would silently
-/// make every application that embeds `keel-client` AGPL. The promise that `keel-client`
+/// governs the combined work, so an AGPL crate underneath `bitting-client` would silently
+/// make every application that embeds `bitting-client` AGPL. The promise that `bitting-client`
 /// is embeddable would still be written in the manifest, and would no longer be true.
 ///
 /// This is the invariant that lets the permissive exceptions exist at all, and it is why
@@ -171,8 +183,8 @@ pub fn license_reach(license: &str) -> Option<u8> {
 pub fn license_for_path(relative_path: &str) -> Option<&'static str> {
     // Most specific first — the two permissive crates are carved out of `crates/`.
     const TREES: &[(&str, &str)] = &[
-        ("crates/keel-proto/", "Apache-2.0"),
-        ("crates/keel-client/", "MPL-2.0"),
+        ("crates/bitting-proto/", "Apache-2.0"),
+        ("crates/bitting-client/", "MPL-2.0"),
         ("crates/", AGPL),
         ("apps/", AGPL),
         ("extension/", AGPL),
@@ -201,25 +213,25 @@ pub const HEADER_SCAN_SKIP_DIRS: &[&str] = &[
 
 /// Crates whose resolved dependency graph must contain no HTTP or TLS stack.
 ///
-/// This is every shipped crate except `keel-breach`. Listing them individually
+/// This is every shipped crate except `bitting-breach`. Listing them individually
 /// rather than "everything except" means a new crate is checked only once someone
 /// decides it should be — which is the same deliberate-decision property the
 /// layering table has.
 pub const NETWORK_FREE_CRATES: &[&str] = &[
-    "keel-crypto",
-    "keel-format",
-    "keel-hardening",
-    "keel-store",
-    "keel-core",
-    "keel-proto",
-    "keel-agent",
-    "keel-client",
-    "keel-cli",
-    "keel-mcp",
-    "keel-native-host",
-    "keel-reveal",
-    "keel-import",
-    "keel-desktop",
+    "bitting-crypto",
+    "bitting-format",
+    "bitting-hardening",
+    "bitting-store",
+    "bitting-core",
+    "bitting-proto",
+    "bitting-agent",
+    "bitting-client",
+    "bitting-cli",
+    "bitting-mcp",
+    "bitting-native-host",
+    "bitting-reveal",
+    "bitting-import",
+    "bitting-desktop",
 ];
 
 /// Crate names that indicate an HTTP client or TLS implementation.
@@ -228,7 +240,7 @@ pub const NETWORK_FREE_CRATES: &[&str] = &[
 /// Unix domain sockets and Windows named pipes to talk to its own clients, so
 /// local socket support is expected. This list targets stacks that speak to the
 /// internet, which is the property users actually care about.
-/// The target triples Keel ships binaries for.
+/// The target triples Bitting ships binaries for.
 ///
 /// The network check runs once per triple rather than over the union of all platforms.
 /// `cargo metadata` without a platform filter merges every platform's dependencies, which
@@ -280,19 +292,24 @@ mod tests {
     fn clients_may_not_reach_the_crypto_core() {
         // The single most important layering rule. If this test ever needs
         // changing, something has gone wrong with the architecture, not the test.
-        for client in ["keel-client", "keel-cli", "keel-mcp", "keel-native-host"] {
+        for client in [
+            "bitting-client",
+            "bitting-cli",
+            "bitting-mcp",
+            "bitting-native-host",
+        ] {
             let allowed = allowed_internal_deps(client).expect("client crate must have rules");
-            for forbidden in ["keel-core", "keel-store"] {
+            for forbidden in ["bitting-core", "bitting-store"] {
                 assert!(
                     !allowed.contains(&forbidden),
                     "{client} must not be allowed to depend on {forbidden}"
                 );
             }
         }
-        // keel-client specifically must hold nothing but the wire types.
+        // bitting-client specifically must hold nothing but the wire types.
         assert_eq!(
-            allowed_internal_deps("keel-client"),
-            Some(&["keel-proto"][..])
+            allowed_internal_deps("bitting-client"),
+            Some(&["bitting-proto"][..])
         );
     }
 
@@ -300,15 +317,15 @@ mod tests {
     fn only_the_agent_may_touch_vault_storage() {
         // Clients speak the wire protocol; they never open the vault file.
         for client in [
-            "keel-client",
-            "keel-cli",
-            "keel-mcp",
-            "keel-native-host",
-            "keel-reveal",
+            "bitting-client",
+            "bitting-cli",
+            "bitting-mcp",
+            "bitting-native-host",
+            "bitting-reveal",
         ] {
             let allowed = allowed_internal_deps(client).expect("client crate must have rules");
             assert!(
-                !allowed.contains(&"keel-store"),
+                !allowed.contains(&"bitting-store"),
                 "{client} must not be allowed to open the vault file"
             );
         }
@@ -319,24 +336,24 @@ mod tests {
         let mut with_core = Vec::new();
         for name in NETWORK_FREE_CRATES {
             if let Some(deps) = allowed_internal_deps(name) {
-                if deps.contains(&"keel-core") {
+                if deps.contains(&"bitting-core") {
                     with_core.push(*name);
                 }
             }
         }
-        assert_eq!(with_core, vec!["keel-agent"]);
+        assert_eq!(with_core, vec!["bitting-agent"]);
     }
 
     #[test]
     fn leaf_crates_stay_leaves() {
-        assert_eq!(allowed_internal_deps("keel-crypto"), Some(&[][..]));
-        assert_eq!(allowed_internal_deps("keel-proto"), Some(&[][..]));
-        assert_eq!(allowed_internal_deps("keel-breach"), Some(&[][..]));
+        assert_eq!(allowed_internal_deps("bitting-crypto"), Some(&[][..]));
+        assert_eq!(allowed_internal_deps("bitting-proto"), Some(&[][..]));
+        assert_eq!(allowed_internal_deps("bitting-breach"), Some(&[][..]));
     }
 
     #[test]
     fn unknown_crates_are_rejected_rather_than_defaulted() {
-        assert!(allowed_internal_deps("keel-something-new").is_none());
+        assert!(allowed_internal_deps("bitting-something-new").is_none());
     }
 
     #[test]
@@ -353,7 +370,7 @@ mod tests {
 
     #[test]
     fn breach_checker_is_the_only_network_exempt_crate() {
-        assert!(!NETWORK_FREE_CRATES.contains(&"keel-breach"));
+        assert!(!NETWORK_FREE_CRATES.contains(&"bitting-breach"));
     }
 
     #[test]
@@ -363,7 +380,7 @@ mod tests {
         // can reach key material, the crypto core, or the vault format must be copyleft.
         for name in NETWORK_FREE_CRATES {
             let expected = expected_license(name).expect("every crate must have a licence");
-            if *name == "keel-proto" || *name == "keel-client" {
+            if *name == "bitting-proto" || *name == "bitting-client" {
                 assert_ne!(
                     expected, AGPL,
                     "{name} is a deliberate permissive exception"
@@ -376,15 +393,15 @@ mod tests {
 
     #[test]
     fn the_embeddable_crate_sits_above_everything_it_may_depend_on() {
-        // The invariant the whole split rests on: keel-client may only depend on crates
+        // The invariant the whole split rests on: bitting-client may only depend on crates
         // whose licence reaches no further than its own, or embedding it silently drags
         // AGPL into a closed application.
-        let client = license_reach(expected_license("keel-client").unwrap()).unwrap();
-        for dep in allowed_internal_deps("keel-client").unwrap() {
+        let client = license_reach(expected_license("bitting-client").unwrap()).unwrap();
+        for dep in allowed_internal_deps("bitting-client").unwrap() {
             let dep_reach = license_reach(expected_license(dep).unwrap()).unwrap();
             assert!(
                 dep_reach <= client,
-                "keel-client (reach {client}) may not depend on {dep} (reach {dep_reach})"
+                "bitting-client (reach {client}) may not depend on {dep} (reach {dep_reach})"
             );
         }
     }
@@ -401,7 +418,7 @@ mod tests {
         // A licence nobody has ranked must not default to "permissive enough".
         assert!(license_reach("MIT").is_none());
         assert!(license_reach("").is_none());
-        assert!(expected_license("keel-something-new").is_none());
+        assert!(expected_license("bitting-something-new").is_none());
     }
 
     #[test]
@@ -409,15 +426,15 @@ mod tests {
         // Ordering bug insurance: `crates/` also matches these paths, and if the general
         // rule won, both crates would be required to carry AGPL headers.
         assert_eq!(
-            license_for_path("crates/keel-proto/src/lib.rs"),
+            license_for_path("crates/bitting-proto/src/lib.rs"),
             Some("Apache-2.0")
         );
         assert_eq!(
-            license_for_path("crates/keel-client/src/lib.rs"),
+            license_for_path("crates/bitting-client/src/lib.rs"),
             Some("MPL-2.0")
         );
         assert_eq!(
-            license_for_path("crates/keel-core/src/vault.rs"),
+            license_for_path("crates/bitting-core/src/vault.rs"),
             Some(AGPL)
         );
         assert_eq!(license_for_path("extension/popup.js"), Some(AGPL));

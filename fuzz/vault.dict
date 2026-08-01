@@ -1,12 +1,12 @@
-# libFuzzer dictionary for the Keel vault format.
+# libFuzzer dictionary for the Bitting vault format.
 #
 # The parser gates on these byte strings, and random mutation would take a very
 # long time to discover them. Handing them over lets the fuzzer spend its budget on
 # the code behind the gates rather than on the gates themselves.
 
 # File markers
-magic_start="KEELVLT\x01"
-magic_end="KEELEND\x01"
+magic_start="BITTVLT\x01"
+magic_end="BITTEND\x01"
 
 # Format and algorithm identifiers
 version_1="\x01\x00"

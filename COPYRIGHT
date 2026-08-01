@@ -1,15 +1,15 @@
-Keel — a local-first password manager
-Copyright (C) 2026 Md Ferdous Alam and Keel contributors
+Bitting — a local-first password manager
+Copyright (C) 2026 Md Ferdous Alam and Bitting contributors
 
 
 WHY THIS FILE EXISTS
 
-A copyleft licence is enforced by the copyright holder. Until this file existed, Keel
-named no holder anywhere in the tree — the workspace manifest said only "Keel
+A copyleft licence is enforced by the copyright holder. Until this file existed, Bitting
+named no holder anywhere in the tree — the workspace manifest said only "Bitting
 contributors" — which would have made the AGPL on this code very hard to act on. This
 file is the record. It is not a formality.
 
-Authorship of record is the commit history. Keel takes contributions under the Developer
+Authorship of record is the commit history. Bitting takes contributions under the Developer
 Certificate of Origin with no copyright assignment, so each contributor holds copyright in
 what they wrote, and the copyright in the whole is held jointly. Nobody, the maintainers
 included, can relicense another contributor's work as proprietary software.
@@ -17,7 +17,7 @@ included, can relicense another contributor's work as proprietary software.
 
 LICENSING
 
-Except for the two crates listed below, Keel is licensed under the GNU Affero General
+Except for the two crates listed below, Bitting is licensed under the GNU Affero General
 Public License, version 3 or (at your option) any later version, together with the
 additional permission in LICENSE-EXCEPTION.md.
 
@@ -31,8 +31,8 @@ can reach key material, the cryptographic core, or the vault format; the layerin
 xtask/src/rules.rs enforces that, and `cargo xtask check-licenses` enforces that their
 dependency closures stay permissive.
 
-    crates/keel-proto ..... Apache-2.0   (LICENSE-APACHE-2.0)
-    crates/keel-client .... MPL-2.0      (LICENSE-MPL-2.0)
+    crates/bitting-proto ..... Apache-2.0   (LICENSE-APACHE-2.0)
+    crates/bitting-client .... MPL-2.0      (LICENSE-MPL-2.0)
 
 Every source file states its own licence in an SPDX header, so no file's terms depend on
 finding this one. See docs/architecture.md for why the licence boundary sits exactly where
@@ -41,7 +41,7 @@ the dependency boundary already sat.
 
 WHAT THE LICENCE DOES AND DOES NOT COVER
 
-The AGPL covers the code. It does not cover the name. "Keel" and the Keel logo are
+The AGPL covers the code. It does not cover the name. "Bitting" and the Bitting logo are
 trademarks of the copyright holder; forks are welcome and must rebrand. See TRADEMARK.md.
 
 Third-party dependency licences are enumerated and enforced in deny.toml, and checked in

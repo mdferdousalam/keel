@@ -9,7 +9,7 @@
 //! command that wanted to leak one would have to add a field first, which is a visible
 //! change in a file whose entire purpose is to not have such a field.
 //!
-//! The alternative — commands returning `keel_proto` types directly — would have worked
+//! The alternative — commands returning `bitting_proto` types directly — would have worked
 //! most of the time and failed the once it mattered, because `Response::Secret` and
 //! `Response::Exported` both carry plaintext and both are one careless `match` arm away
 //! from being forwarded.
@@ -20,7 +20,7 @@
 //! strength estimate, computed from a value this process never received. There is nothing
 //! to reverse, because nothing was encoded.
 
-use keel_proto::Response;
+use bitting_proto::Response;
 use serde::Serialize;
 
 /// The character a masked field is drawn with.
@@ -258,11 +258,11 @@ pub struct HealthView {
     /// Distinct entries flagged.
     pub flagged: usize,
     /// Groups sharing a password.
-    pub reused: Vec<Vec<keel_proto::HealthEntry>>,
+    pub reused: Vec<Vec<bitting_proto::HealthEntry>>,
     /// Weak passwords, weakest first.
-    pub weak: Vec<keel_proto::HealthEntry>,
+    pub weak: Vec<bitting_proto::HealthEntry>,
     /// Old passwords, oldest first.
-    pub stale: Vec<keel_proto::HealthEntry>,
+    pub stale: Vec<bitting_proto::HealthEntry>,
 }
 
 impl HealthView {
@@ -299,7 +299,7 @@ impl HealthView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LogView {
     /// Records, oldest first.
-    pub records: Vec<keel_proto::AuditEntry>,
+    pub records: Vec<bitting_proto::AuditEntry>,
     /// `intact`, `broken_at`, `truncated_after`, or `tail_altered`.
     pub chain: String,
     /// Sequence number the verdict refers to, when it has one.
@@ -324,12 +324,12 @@ impl LogView {
                 total,
             } => {
                 let (name, seq) = match chain {
-                    keel_proto::ChainState::Intact => ("intact", None),
-                    keel_proto::ChainState::BrokenAt { seq } => ("broken_at", Some(*seq)),
-                    keel_proto::ChainState::TruncatedAfter { seq } => {
+                    bitting_proto::ChainState::Intact => ("intact", None),
+                    bitting_proto::ChainState::BrokenAt { seq } => ("broken_at", Some(*seq)),
+                    bitting_proto::ChainState::TruncatedAfter { seq } => {
                         ("truncated_after", Some(*seq))
                     }
-                    keel_proto::ChainState::TailAltered { expected_seq, .. } => {
+                    bitting_proto::ChainState::TailAltered { expected_seq, .. } => {
                         ("tail_altered", Some(*expected_seq))
                     }
                 };
@@ -447,11 +447,11 @@ fn wrong_response(expected: &str, got: &Response) -> String {
     )
 }
 
-const fn lock_state_name(state: keel_proto::LockState) -> &'static str {
+const fn lock_state_name(state: bitting_proto::LockState) -> &'static str {
     match state {
-        keel_proto::LockState::Unlocked => "unlocked",
-        keel_proto::LockState::Locked => "locked",
-        keel_proto::LockState::NoVault => "no_vault",
+        bitting_proto::LockState::Unlocked => "unlocked",
+        bitting_proto::LockState::Locked => "locked",
+        bitting_proto::LockState::NoVault => "no_vault",
     }
 }
 
@@ -504,7 +504,7 @@ mod tests {
         for name in [
             variant_name(&Response::Ok),
             variant_name(&Response::Error {
-                code: keel_proto::ErrorCode::Internal,
+                code: bitting_proto::ErrorCode::Internal,
                 message: String::new(),
             }),
         ] {
@@ -534,7 +534,7 @@ mod tests {
     fn an_unexpected_export_response_is_named_not_quoted() {
         const CANARY: &str = "canary-Zq7#mV4xKp";
         let response = Response::Exported {
-            entries: vec![keel_proto::ExportedEntry {
+            entries: vec![bitting_proto::ExportedEntry {
                 title: "Bank".to_owned(),
                 username: "ada".to_owned(),
                 password: CANARY.to_owned(),

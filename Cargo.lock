@@ -270,6 +270,185 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitting-agent"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "bitting-core",
+ "bitting-crypto",
+ "bitting-format",
+ "bitting-hardening",
+ "bitting-proto",
+ "bitting-store",
+ "blake3",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "zeroize",
+]
+
+[[package]]
+name = "bitting-breach"
+version = "0.1.0"
+
+[[package]]
+name = "bitting-cli"
+version = "0.1.0"
+dependencies = [
+ "bitting-client",
+ "bitting-import",
+ "bitting-proto",
+ "clap",
+ "fips204",
+ "minisign-verify",
+ "rpassword",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "bitting-client"
+version = "0.1.0"
+dependencies = [
+ "bitting-proto",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "bitting-core"
+version = "0.1.0"
+dependencies = [
+ "bitting-crypto",
+ "bitting-format",
+ "bitting-store",
+ "blake3",
+ "tempfile",
+ "thiserror 2.0.19",
+ "zeroize",
+]
+
+[[package]]
+name = "bitting-crypto"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "blake3",
+ "chacha20poly1305",
+ "getrandom 0.2.17",
+ "hkdf",
+ "sha2",
+ "subtle",
+ "thiserror 2.0.19",
+ "zeroize",
+]
+
+[[package]]
+name = "bitting-desktop"
+version = "0.1.0"
+dependencies = [
+ "bitting-client",
+ "bitting-proto",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tempfile",
+]
+
+[[package]]
+name = "bitting-format"
+version = "0.1.0"
+dependencies = [
+ "bitting-crypto",
+ "blake3",
+ "postcard",
+ "proptest",
+ "serde",
+ "thiserror 2.0.19",
+ "zeroize",
+]
+
+[[package]]
+name = "bitting-hardening"
+version = "0.1.0"
+dependencies = [
+ "bitting-crypto",
+ "libc",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "raw-window-handle",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "bitting-import"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "tempfile",
+ "thiserror 2.0.19",
+ "zeroize",
+]
+
+[[package]]
+name = "bitting-mcp"
+version = "0.1.0"
+dependencies = [
+ "bitting-client",
+ "bitting-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "bitting-native-host"
+version = "0.1.0"
+dependencies = [
+ "bitting-client",
+ "bitting-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "bitting-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "bitting-reveal"
+version = "0.1.0"
+dependencies = [
+ "bitting-hardening",
+ "softbuffer",
+ "winit",
+ "zeroize",
+]
+
+[[package]]
+name = "bitting-store"
+version = "0.1.0"
+dependencies = [
+ "bitting-crypto",
+ "bitting-format",
+ "blake3",
+ "directories",
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "blake2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2221,185 +2400,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
  "cpufeatures 0.2.17",
-]
-
-[[package]]
-name = "keel-agent"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "blake3",
- "keel-core",
- "keel-crypto",
- "keel-format",
- "keel-hardening",
- "keel-proto",
- "keel-store",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.19",
- "zeroize",
-]
-
-[[package]]
-name = "keel-breach"
-version = "0.1.0"
-
-[[package]]
-name = "keel-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "fips204",
- "keel-client",
- "keel-import",
- "keel-proto",
- "minisign-verify",
- "rpassword",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "keel-client"
-version = "0.1.0"
-dependencies = [
- "keel-proto",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "keel-core"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "keel-crypto",
- "keel-format",
- "keel-store",
- "tempfile",
- "thiserror 2.0.19",
- "zeroize",
-]
-
-[[package]]
-name = "keel-crypto"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "blake3",
- "chacha20poly1305",
- "getrandom 0.2.17",
- "hkdf",
- "sha2",
- "subtle",
- "thiserror 2.0.19",
- "zeroize",
-]
-
-[[package]]
-name = "keel-desktop"
-version = "0.1.0"
-dependencies = [
- "keel-client",
- "keel-proto",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tempfile",
-]
-
-[[package]]
-name = "keel-format"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "keel-crypto",
- "postcard",
- "proptest",
- "serde",
- "thiserror 2.0.19",
- "zeroize",
-]
-
-[[package]]
-name = "keel-hardening"
-version = "0.1.0"
-dependencies = [
- "keel-crypto",
- "libc",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "raw-window-handle",
- "tempfile",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "keel-import"
-version = "0.1.0"
-dependencies = [
- "csv",
- "tempfile",
- "thiserror 2.0.19",
- "zeroize",
-]
-
-[[package]]
-name = "keel-mcp"
-version = "0.1.0"
-dependencies = [
- "keel-client",
- "keel-proto",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "keel-native-host"
-version = "0.1.0"
-dependencies = [
- "keel-client",
- "keel-proto",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "keel-proto"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "keel-reveal"
-version = "0.1.0"
-dependencies = [
- "keel-hardening",
- "softbuffer",
- "winit",
- "zeroize",
-]
-
-[[package]]
-name = "keel-store"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "directories",
- "keel-crypto",
- "keel-format",
- "tempfile",
- "thiserror 2.0.19",
 ]
 
 [[package]]

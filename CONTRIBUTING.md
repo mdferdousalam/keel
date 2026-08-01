@@ -1,6 +1,6 @@
-# Contributing to Keel
+# Contributing to Bitting
 
-Thanks for considering it. Keel is a password manager, which means a bug here can
+Thanks for considering it. Bitting is a password manager, which means a bug here can
 expose someone's entire digital life. That shapes how this project takes changes:
 slowly, with tests, and with reasoning written down.
 
@@ -16,8 +16,8 @@ your time more than mine.
 ## Getting set up
 
 ```sh
-git clone https://github.com/mdferdousalam/keel
-cd keel
+git clone https://github.com/mdferdousalam/bitting
+cd bitting
 cargo test --workspace      # test suite
 cargo xtask check           # architectural gates
 cargo clippy --workspace --all-targets -- -D warnings
@@ -40,7 +40,7 @@ code, under the [Developer Certificate of Origin](https://developercertificate.o
 
 There is **no contributor licence agreement**. You keep your copyright. This is
 deliberate: because copyright is distributed across contributors, nobody — the
-maintainers included — can relicense Keel as proprietary software later. For a
+maintainers included — can relicense Bitting as proprietary software later. For a
 security tool, that irreversibility is a feature worth protecting.
 
 ### What you are licensing it under
@@ -50,11 +50,11 @@ one of three. Nothing extra to sign; this is what the DCO sign-off means here.
 
 | Where you are editing | Inbound licence |
 |---|---|
-| `crates/keel-proto` | `Apache-2.0` |
-| `crates/keel-client` | `MPL-2.0` |
+| `crates/bitting-proto` | `Apache-2.0` |
+| `crates/bitting-client` | `MPL-2.0` |
 | Everywhere else | `AGPL-3.0-or-later`, **together with** the additional permission in [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md) |
 
-The additional permission needs saying explicitly. It is what allows Keel to ship through
+The additional permission needs saying explicitly. It is what allows Bitting to ship through
 an app store at all — Apple's terms and the AGPL are otherwise incompatible — and under
 section 7 a permission like that can only be granted by *every* copyright holder. Since
 there is no CLA, that means every contributor. If it were left implicit, the first
@@ -65,8 +65,8 @@ is a legitimate position and it is much cheaper to hear before the patch lands t
 
 Two rules follow from the split, and `cargo xtask check-licenses` enforces both:
 
-* **`keel-proto` and `keel-client` may not gain a copyleft dependency.** A dependency's
-  licence governs the combined work, so one AGPL crate underneath `keel-client` would make
+* **`bitting-proto` and `bitting-client` may not gain a copyleft dependency.** A dependency's
+  licence governs the combined work, so one AGPL crate underneath `bitting-client` would make
   every application embedding it AGPL while the manifest still advertised MPL. The
   [layering rules](xtask/src/rules.rs) already forbid the edges that would do this.
 * **Every source file carries an SPDX header** matching its tree. If you move a file
@@ -90,8 +90,8 @@ and returns a *result*, not the value.
 ### 2. Layering is enforced, not advisory
 
 `cargo xtask check-layering` encodes the dependency direction. The critical rule:
-**`keel-client` must never gain `keel-crypto`, `keel-format`, or `keel-core`.**
-Only `keel-agent` links the cryptographic core at runtime, and that is what makes
+**`bitting-client` must never gain `bitting-crypto`, `bitting-format`, or `bitting-core`.**
+Only `bitting-agent` links the cryptographic core at runtime, and that is what makes
 "where can key material be?" a question with a short answer.
 
 If you believe a layering rule is wrong, change `xtask/src/rules.rs` in its own
@@ -100,7 +100,7 @@ commit and explain why. Do not route around it.
 ### 3. The vault core reaches no network
 
 `cargo xtask check-network` walks the resolved dependency graph and fails if any
-HTTP or TLS crate is reachable from the vault core. `keel-breach` is the single
+HTTP or TLS crate is reachable from the vault core. `bitting-breach` is the single
 exception, and it is off by default.
 
 A new dependency that happens to pull in `reqwest` will fail CI. That is the gate
@@ -108,7 +108,7 @@ working.
 
 ### 4. Parsers assume hostile input
 
-`keel-format`, the IPC frame decoder, and every importer parse attacker-controlled
+`bitting-format`, the IPC frame decoder, and every importer parse attacker-controlled
 bytes. For those:
 
 * Validate lengths and bounds **before allocating**. A file that asks for 64 GiB
@@ -121,7 +121,7 @@ bytes. For those:
 
 Any change to key derivation, the AEAD layer, or the on-disk format needs
 known-answer tests, and existing vectors must keep passing. The vectors in
-`crates/keel-format/tests/vectors/` are a compatibility contract: if a change
+`crates/bitting-format/tests/vectors/` are a compatibility contract: if a change
 breaks them it changes the format, which needs a version bump and a migration
 path, not a vector update.
 
@@ -135,8 +135,8 @@ claim defensible.
 
 ### 7. Dependencies are a budget, not a convenience
 
-`keel-core`'s dependency tree has a ceiling of roughly 150 crates. A new
-dependency in `keel-crypto`, `keel-format`, `keel-core`, or `keel-agent` needs a
+`bitting-core`'s dependency tree has a ceiling of roughly 150 crates. A new
+dependency in `bitting-crypto`, `bitting-format`, `bitting-core`, or `bitting-agent` needs a
 sentence in the pull request explaining why writing it is worse than depending on
 it. Every dependency is code that runs in the process holding your unlocked vault.
 
@@ -172,7 +172,7 @@ changes the vault format or the IPC protocol.
 
 ## Review expectations
 
-Changes to `keel-crypto`, `keel-format`, `keel-core`, and the `keel-agent`
+Changes to `bitting-crypto`, `bitting-format`, `bitting-core`, and the `bitting-agent`
 authentication paths are reviewed slowly and deliberately. That is not
 gatekeeping — it is the cost of being the code that stands between a stolen file
 and someone's bank account. Documentation, packaging, and UI changes move faster.

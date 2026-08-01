@@ -1,18 +1,18 @@
-# The `keel` command
+# The `bitting` command
 
 ## How it works
 
-`keel` is a thin client. The vault is held by a background process, `keel-agent`, which is
+`bitting` is a thin client. The vault is held by a background process, `bitting-agent`, which is
 started automatically the first time you run a command and holds the unlocked vault so you
 unlock once per session rather than once per command.
 
 That split is a security decision as much as a convenience one: the agent is the only
 process that ever holds key material, so "which code can read my passwords?" has a
-one-binary answer. `keel` itself cannot decrypt anything — it has no access to the
+one-binary answer. `bitting` itself cannot decrypt anything — it has no access to the
 cryptographic code at all, and a CI check enforces that.
 
 ```
-keel  ──unix socket──►  keel-agent  ──►  vault.keel
+bitting  ──unix socket──►  bitting-agent  ──►  vault.bitting
 ```
 
 ## Secret-handling rules
@@ -24,7 +24,7 @@ These are not stylistic choices. Each closes a specific hole:
 and they persist in shell history long after the session. Secrets arrive by prompt, by
 stdin, or from a file you control.
 
-**`keel get` copies rather than prints.** A password on a terminal survives in scrollback,
+**`bitting get` copies rather than prints.** A password on a terminal survives in scrollback,
 in screen recordings, and in the memory of whoever walked past. Printing requires `--show`.
 
 **Exit codes are stable**, so a script can branch on the outcome without parsing prose:
@@ -40,19 +40,19 @@ in screen recordings, and in the memory of whoever walked past. Printing require
 ## Commands
 
 ```
-keel init [--tier interactive|balanced|paranoid]
-keel unlock [--accept-rollback]
-keel lock
-keel status
-keel list [--limit N]
-keel search <query>
-keel add <title> [--username U] [--url URL]... [--tag T]...
+bitting init [--tier interactive|balanced|paranoid]
+bitting unlock [--accept-rollback]
+bitting lock
+bitting status
+bitting list [--limit N]
+bitting search <query>
+bitting add <title> [--username U] [--url URL]... [--tag T]...
                  [--password-stdin | --length N | --words N]
-keel get <name> [--field password|username|totp|notes] [--show]
-keel rotate <name> [--length N | --words N]
-keel rm <name> [--yes]
-keel generate [--length N | --words N]
-keel save
+bitting get <name> [--field password|username|totp|notes] [--show]
+bitting rotate <name> [--length N | --words N]
+bitting rm <name> [--yes]
+bitting generate [--length N | --words N]
+bitting save
 ```
 
 Every command accepts `--json` for machine-readable output.
@@ -60,7 +60,7 @@ Every command accepts `--json` for machine-readable output.
 ### Creating a vault
 
 ```sh
-keel init
+bitting init
 ```
 
 Prompts twice for a new master passphrase. The confirmation matters more here than anywhere
@@ -77,7 +77,7 @@ Because the agent holds the vault open, you pay this once per session, not per c
 By default the password is **generated** and never displayed:
 
 ```sh
-$ keel add "Example Bank" --username ada@example.com --url https://bank.example.com
+$ bitting add "Example Bank" --username ada@example.com --url https://bank.example.com
 Added Example Bank (129 bits of entropy).
 ```
 
@@ -85,37 +85,37 @@ The value is created inside the agent and stored without crossing back, so nothi
 could log it ever sees it. To store a password you already have:
 
 ```sh
-printf '%s' "$EXISTING" | keel add "Old Forum" --username ada --password-stdin
+printf '%s' "$EXISTING" | bitting add "Old Forum" --username ada --password-stdin
 ```
 
 For a passphrase instead of a character password:
 
 ```sh
-keel add "Router" --words 6
+bitting add "Router" --words 6
 ```
 
 ### Retrieving
 
 ```sh
-keel get "Example Bank"          # applies the secret; does not print it
-keel get "Example Bank" --show   # prints it
-keel get "Example Bank" --field totp
+bitting get "Example Bank"          # applies the secret; does not print it
+bitting get "Example Bank" --show   # prints it
+bitting get "Example Bank" --field totp
 ```
 
 An ambiguous name is refused rather than guessed:
 
 ```sh
-$ keel get Bank --show
-keel: "Bank" matches 2 entries (Bank One, Bank Two); be more specific
+$ bitting get Bank --show
+bitting: "Bank" matches 2 entries (Bank One, Bank Two); be more specific
 ```
 
-Guessing would risk acting on the wrong entry — and for `keel rotate`, that means changing a
+Guessing would risk acting on the wrong entry — and for `bitting rotate`, that means changing a
 password the user never meant to touch.
 
 ### Rotating
 
 ```sh
-keel rotate "Example Bank"
+bitting rotate "Example Bank"
 ```
 
 Replaces the password with a fresh one and keeps the previous value in history. History
@@ -125,7 +125,7 @@ password would otherwise leave you with no way back.
 ### Deleting
 
 ```sh
-keel rm "Old Forum"
+bitting rm "Old Forum"
 ```
 
 Moves the entry to the trash rather than destroying it. There is no hard-delete command,
@@ -139,20 +139,20 @@ Two supported ways to run without a terminal.
 **A passphrase file** — the recommended one:
 
 ```sh
-printf '%s' "$PASSPHRASE" > ~/.keel-pass
-chmod 600 ~/.keel-pass
-export KEEL_PASSPHRASE_FILE=~/.keel-pass
-keel unlock
+printf '%s' "$PASSPHRASE" > ~/.bitting-pass
+chmod 600 ~/.bitting-pass
+export BITTING_PASSPHRASE_FILE=~/.bitting-pass
+bitting unlock
 ```
 
-Keel **refuses** a passphrase file that other users can read, rather than warning about it. A
+Bitting **refuses** a passphrase file that other users can read, rather than warning about it. A
 passphrase the whole machine can read defeats the vault entirely, and a warning in a script's
 output is a warning nobody sees.
 
 **Piped stdin**, when stdin is not a terminal:
 
 ```sh
-printf '%s' "$PASSPHRASE" | keel unlock
+printf '%s' "$PASSPHRASE" | bitting unlock
 ```
 
 Note what is *not* offered: an environment variable holding the passphrase itself.
@@ -164,25 +164,25 @@ least has permissions.
 
 | Variable | Purpose |
 |---|---|
-| `KEEL_VAULT` | Vault file path. Defaults to the platform data directory. |
-| `KEEL_PASSPHRASE_FILE` | File holding the master passphrase, mode 600. |
-| `KEEL_AGENT_SOCKET` | Agent socket path. Useful for running two vaults side by side. |
-| `KEEL_AGENT_BINARY` | Path to `keel-agent`, for unusual installs. |
-| `KEEL_AGENT_IDLE_EXIT_SECS` | How long an idle, locked agent lingers. Default 900. |
+| `BITTING_VAULT` | Vault file path. Defaults to the platform data directory. |
+| `BITTING_PASSPHRASE_FILE` | File holding the master passphrase, mode 600. |
+| `BITTING_AGENT_SOCKET` | Agent socket path. Useful for running two vaults side by side. |
+| `BITTING_AGENT_BINARY` | Path to `bitting-agent`, for unusual installs. |
+| `BITTING_AGENT_IDLE_EXIT_SECS` | How long an idle, locked agent lingers. Default 900. |
 
 ## Scripting
 
 ```sh
 # List entries as JSON
-keel --json list | jq -r '.entries[].title'
+bitting --json list | jq -r '.entries[].title'
 
 # Branch on lock state
-if ! keel status --json | jq -e '.state == "Unlocked"' >/dev/null; then
-  keel unlock
+if ! bitting status --json | jq -e '.state == "Unlocked"' >/dev/null; then
+  bitting unlock
 fi
 
 # Distinguish "locked" from "missing"
-keel get "Some Site" --show
+bitting get "Some Site" --show
 case $? in
   0) ;;
   2) echo "vault is locked" ;;
@@ -196,8 +196,8 @@ Starts on demand and exits after 15 minutes idle with the vault locked. It locks
 after 5 minutes of inactivity, and after 8 hours regardless of activity.
 
 ```sh
-keel status          # includes when it will lock
-keel lock            # lock now
+bitting status          # includes when it will lock
+bitting lock            # lock now
 ```
 
 Repeated wrong passphrases cause an increasing delay, capped at a minute. They never lock you
@@ -209,10 +209,10 @@ destructive counter would punish only the user who mistyped.
 
 Being explicit so nothing here is mistaken for a bug:
 
-- `keel get` without `--show` reports that it needs the desktop app. Clipboard and synthetic
+- `bitting get` without `--show` reports that it needs the desktop app. Clipboard and synthetic
   typing need platform integration that ships with the GUI. It fails loudly rather than
   claiming to have copied something — a user who believes a password was copied and then
   pastes stale clipboard contents into a login form has been actively misled.
-- `keel import`, `keel export`, and `keel audit` are not implemented.
+- `bitting import`, `bitting export`, and `bitting audit` are not implemented.
 - Windows is not supported yet: the agent needs a named-pipe transport with a
   current-user-only DACL, and that is not written.

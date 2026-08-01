@@ -1,6 +1,6 @@
 # Threat model
 
-This document says what Keel defends against, what it partly mitigates, and what
+This document says what Bitting defends against, what it partly mitigates, and what
 it does not defend against at all. The third list is the important one. A password
 manager that claims to stop everything is lying, and a user who believes it will
 make worse decisions than one who knows the boundaries.
@@ -29,7 +29,7 @@ Notation:
 
 ### T1 — Offline vault thief · **Defended** · *primary threat*
 
-Has `vault.keel` (stolen laptop, a backup, a synced cloud folder, a forensic
+Has `vault.bitting` (stolen laptop, a backup, a synced cloud folder, a forensic
 image), unlimited offline compute, no passphrase.
 
 **Defence.** Argon2id (512 MiB / t=4 / p=4 by default) over a 256-bit key, then
@@ -132,7 +132,7 @@ Can push commits, mint releases, and use CI secrets.
 that never exists in CI** (Ed25519 **and** ML-DSA-65; the verifier requires both).
 CI-side Sigstore/SLSA provenance is supplementary evidence, not the trust root.
 Combined with reproducible builds and a public rebuild workflow, a backdoored
-release is either unsigned — and rejected by `keel verify-release` — or publicly
+release is either unsigned — and rejected by `bitting verify-release` — or publicly
 detectable by anyone who rebuilds.
 
 **Honest limit.** A compromised CI can serve malware to someone who skips
@@ -170,7 +170,7 @@ Can call any exposed tool, arbitrarily often, with attacker-authored arguments.
 log you into things and manage entries, and cannot exfiltrate a single password
 even if it is fully controlled by an attacker.
 
-**If you turn reveal on.** `keel settings --agent-reveal on` makes plaintext reveals
+**If you turn reveal on.** `bitting settings --agent-reveal on` makes plaintext reveals
 *possible*; it does not make them automatic. Every one still raises a per-request prompt
 that names the program, its verified path on disk, and the entry from the vault, with the
 agent's own justification quarantined and labelled as untrusted. Approval is **one-shot**:
@@ -295,11 +295,11 @@ introduced; or any approval flow is modified.
 ## Autofill, and why it refuses more than it accepts
 
 Autofill is the feature most likely to hand a password to an attacker, because the attacker
-gets to choose the page. Keel's arrangement is shaped around that.
+gets to choose the page. Bitting's arrangement is shaped around that.
 
 **Nothing runs on a page until you ask.** There is no `<all_urls>` permission and no
-declaratively injected content script. Clicking the toolbar button is what causes any Keel
-code to touch a page. The cost is that Keel cannot notice a login form and offer to fill it as
+declaratively injected content script. Clicking the toolbar button is what causes any Bitting
+code to touch a page. The cost is that Bitting cannot notice a login form and offer to fill it as
 the page loads; that convenience is where most extension credential-leak CVEs come from,
 because it means privileged code parses untrusted page content on every site you visit.
 
@@ -339,7 +339,7 @@ treated as a hole in a claim.
 ## The desktop window, and the one secret that passes through it
 
 The window is a webview, which means a browser: a garbage-collected heap whose strings
-cannot be zeroized, a JIT, a DOM, and a devtools protocol. Keel therefore does not put
+cannot be zeroized, a JIT, a DOM, and a devtools protocol. Bitting therefore does not put
 passwords in it.
 
 **No secret stored in the vault ever reaches the window.** Entries arrive with their secret
@@ -361,7 +361,7 @@ achieves. The field is cleared as soon as it is sent, which shortens how long th
 reachable from the DOM and does not scrub it from the heap — nothing in a webview can.
 
 Revealing a stored password on screen is deliberately **not** a feature of the window itself.
-It is `keel-reveal`, a separate process with no webview, no HTML, and no font parser — the font
+It is `bitting-reveal`, a separate process with no webview, no HTML, and no font parser — the font
 is a hand-built bitmap, because a font library is a parser for a complex binary format and this
 is the one process that holds a plaintext password.
 
@@ -380,14 +380,14 @@ says that too.
 
 ## What the audit log does and does not prove
 
-Every request any client makes is appended to `vault.keel.audit`, encrypted under a
+Every request any client makes is appended to `vault.bitting.audit`, encrypted under a
 subkey of the vault master key and chained: each record commits to the hash of its
-predecessor. `keel log` reads it back and reports what verified.
+predecessor. `bitting log` reads it back and reports what verified.
 
 Being precise about what that buys is worth more than the phrase "tamper-evident".
 
 **Detected.** Editing any record, or removing or reordering records in the middle,
-breaks the chain at that point. `keel log` names the sequence number and still prints
+breaks the chain at that point. `bitting log` names the sequence number and still prints
 the records *before* the break, because those are the evidence — discarding a good
 prefix because the file was damaged later would destroy exactly what an investigation
 needs.
@@ -395,7 +395,7 @@ needs.
 **Detected, but only with help.** Deleting records from the **end** is invisible to
 the chain, because records 1..k form a valid chain for any k. So is rebuilding the
 tail from scratch, which produces a different but internally consistent chain. Neither
-is caught by chaining alone. Keel therefore stores an *anchor* — the expected record
+is caught by chaining alone. Bitting therefore stores an *anchor* — the expected record
 count and chain tip — inside the vault manifest, which is authenticated under the
 vault key. Anyone able to forge that anchor can already rewrite the vault itself, at
 which point the audit log is the least of the problems.

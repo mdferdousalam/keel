@@ -8,7 +8,7 @@ name: Release
 # So the signing keys never enter CI. This workflow builds artifacts, computes checksums,
 # and requests Sigstore-backed build provenance — all of which a compromised pipeline could
 # also do. What it cannot do is sign SHA256SUMS with the maintainer's offline Ed25519 and
-# ML-DSA keys. `keel verify-release` requires both of those signatures, so an attacker who
+# ML-DSA keys. `bitting verify-release` requires both of those signatures, so an attacker who
 # owns this pipeline produces an *unsigned* release that the verifier rejects.
 #
 # The release is therefore published as a **draft**. A human downloads the artifacts, signs
@@ -123,15 +123,15 @@ jobs:
           TZ: UTC
           LC_ALL: C
         run: |
-          # Every binary the packaging in packaging/ installs. Building only keel-cli and
-          # keel-agent shipped .deb and PKGBUILD files that referenced keel-mcp and
-          # keel-native-host — packages that would have failed to build at install time.
+          # Every binary the packaging in packaging/ installs. Building only bitting-cli and
+          # bitting-agent shipped .deb and PKGBUILD files that referenced bitting-mcp and
+          # bitting-native-host — packages that would have failed to build at install time.
           #
-          # keel-reveal is deliberately absent: it links a window toolkit, which does not
+          # bitting-reveal is deliberately absent: it links a window toolkit, which does not
           # belong in a static musl binary, and the platforms where it works need a
           # dynamically linked build. It is packaged separately with the desktop app.
           cargo build --locked --profile release-repro --target ${{ matrix.target }} \
-            -p keel-cli -p keel-agent -p keel-mcp -p keel-native-host
+            -p bitting-cli -p bitting-agent -p bitting-mcp -p bitting-native-host
 
       - name: Package
         id: package
@@ -144,17 +144,17 @@ jobs:
           bindir="target/${target}/release-repro"
 
           if [[ "$target" == *windows* ]]; then
-            name="keel-${version}-${target}.zip"
-            (cd "$bindir" && zip -X -q "../../../${outdir}/${name}" keel.exe keel-agent.exe)
+            name="bitting-${version}-${target}.zip"
+            (cd "$bindir" && zip -X -q "../../../${outdir}/${name}" bitting.exe bitting-agent.exe)
           else
-            name="keel-${version}-${target}.tar.gz"
+            name="bitting-${version}-${target}.tar.gz"
             # Fixed ownership, sorted names, and a pinned mtime: tar metadata is otherwise a
             # rich source of build-to-build differences.
             tar --sort=name \
                 --owner=0 --group=0 --numeric-owner \
                 --mtime="@${SOURCE_DATE_EPOCH:-0}" \
                 -czf "${outdir}/${name}" \
-                -C "$bindir" keel keel-agent
+                -C "$bindir" bitting bitting-agent
           fi
           echo "artifact=${name}" >> "$GITHUB_OUTPUT"
         env:
@@ -171,7 +171,7 @@ jobs:
         run: |
           set -euo pipefail
           bindir="target/${{ matrix.target }}/release-repro"
-          for binary in keel keel-agent; do
+          for binary in bitting bitting-agent; do
             shasum -a 256 "${bindir}/${binary}" \
               | sed "s|${bindir}/|unsigned:|" >> dist/UNSIGNED-HASHES
             codesign --force --sign - --options runtime "${bindir}/${binary}"
@@ -216,11 +216,11 @@ jobs:
           LC_ALL: C
         run: |
           cargo build --locked --profile release-repro \
-            --target x86_64-unknown-linux-musl -p keel-cli -p keel-agent
+            --target x86_64-unknown-linux-musl -p bitting-cli -p bitting-agent
       - name: Hash
         run: |
-          sha256sum target/x86_64-unknown-linux-musl/release-repro/keel \
-                    target/x86_64-unknown-linux-musl/release-repro/keel-agent \
+          sha256sum target/x86_64-unknown-linux-musl/release-repro/bitting \
+                    target/x86_64-unknown-linux-musl/release-repro/bitting-agent \
             | sed 's|target/.*/||' > hashes-${{ matrix.attempt }}.txt
           cat hashes-${{ matrix.attempt }}.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -304,17 +304,17 @@ jobs:
 
           This release is **not yet signed** and should not be trusted until it is.
 
-          Keel requires two signatures over `SHA256SUMS`, made with keys that never enter
+          Bitting requires two signatures over `SHA256SUMS`, made with keys that never enter
           CI: `SHA256SUMS.minisig` (Ed25519) and `SHA256SUMS.mldsa.sig` (ML-DSA-65). Once
           both are attached:
 
-              keel verify-release ./downloaded-release/
+              bitting verify-release ./downloaded-release/
 
           Both signatures must pass. See `docs/VERIFY.md`.
 
           ## Notes on platform trust
 
-          Keel is distributed without paid code-signing certificates, so macOS and Windows
+          Bitting is distributed without paid code-signing certificates, so macOS and Windows
           will warn about downloaded installers. Install via Homebrew, Scoop, or your Linux
           package manager to avoid that, and see `docs/install.md` for why reproducible
           builds plus offline signatures are a stronger integrity guarantee than a purchased
@@ -328,7 +328,7 @@ jobs:
 
           gh release create "$TAG" \
             --draft \
-            --title "Keel $TAG" \
+            --title "Bitting $TAG" \
             --notes-file NOTES.md \
             staging/*
 

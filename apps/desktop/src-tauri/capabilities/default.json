@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The minimum the Keel window needs. Every permission here is one the UI actually uses; nothing is included speculatively, and there is deliberately no filesystem, shell, http, or clipboard permission — the agent performs clipboard writes itself, and the webview has no business reading files.",
+  "description": "The minimum the Bitting window needs. Every permission here is one the UI actually uses; nothing is included speculatively, and there is deliberately no filesystem, shell, http, or clipboard permission — the agent performs clipboard writes itself, and the webview has no business reading files.",
   "windows": ["main"],
   "permissions": [
     "core:default",

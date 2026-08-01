@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Keel",
+  "productName": "Bitting",
   "version": "0.1.0",
-  "identifier": "dev.keel.desktop",
+  "identifier": "dev.bitting.desktop",
   "build": {
     "frontendDist": "../ui"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "Keel",
+        "title": "Bitting",
         "width": 980,
         "height": 680,
         "minWidth": 720,
@@ -39,9 +39,9 @@
       "nsis"
     ],
     "shortDescription": "A local-first password manager",
-    "longDescription": "Keel keeps your passwords in one encrypted file on this machine. No server, no account, no telemetry.",
+    "longDescription": "Bitting keeps your passwords in one encrypted file on this machine. No server, no account, no telemetry.",
     "category": "Utility",
-    "copyright": "Copyright (C) 2026 Md Ferdous Alam and Keel contributors",
+    "copyright": "Copyright (C) 2026 Md Ferdous Alam and Bitting contributors",
     "licenseFile": "../../../LICENSE",
     "macOS": {
       "minimumSystemVersion": "10.15"

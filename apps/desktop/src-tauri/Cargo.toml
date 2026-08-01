@@ -1,6 +1,6 @@
 [package]
-name = "keel-desktop"
-description = "Keel desktop application: a masked-only shell over the Keel agent."
+name = "bitting-desktop"
+description = "Bitting desktop application: a masked-only shell over the Bitting agent."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,20 +15,20 @@ publish = false
 workspace = true
 
 [[bin]]
-name = "keel-desktop"
+name = "bitting-desktop"
 path = "src/main.rs"
 
 [lib]
-name = "keel_desktop"
+name = "bitting_desktop"
 path = "src/lib.rs"
 
-# Note what is absent: keel-crypto, keel-format, keel-core, keel-store. The desktop shell
+# Note what is absent: bitting-crypto, bitting-format, bitting-core, bitting-store. The desktop shell
 # is a client like any other, and `cargo xtask check-layering` fails the build if that
 # changes. It cannot decrypt anything, and the webview it hosts is further from the keys
 # than the shell is.
 [dependencies]
-keel-client = { workspace = true }
-keel-proto = { workspace = true }
+bitting-client = { workspace = true }
+bitting-proto = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { workspace = true }
@@ -38,5 +38,5 @@ tauri-build = { workspace = true }
 
 [dev-dependencies]
 # The GUI-invariant test drives a real agent, so it needs a real client and a temp dir.
-keel-client = { workspace = true }
+bitting-client = { workspace = true }
 tempfile = { workspace = true }

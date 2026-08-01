@@ -1,7 +1,12 @@
-# Keel
+# Bitting
 
 A local-first, open-source password manager built for people who want to verify
 their tools rather than trust them.
+
+The *bitting* of a key is the pattern of cuts along its blade — and the code that
+records those cuts, from which the key can be reproduced. It is the part that is
+actually secret. Everything else about a lock can be examined in daylight, which is
+roughly the argument this project makes about its own source.
 
 > **Status: working, but pre-release.** The command line, the agent, and the MCP server all
 > function — you can create a vault, store and retrieve passwords, import from another
@@ -9,7 +14,7 @@ their tools rather than trust them.
 > there are no signed releases, so a future version may not open a vault you create today.
 > Do not put passwords you cannot afford to lose in it yet.
 
-## What Keel is
+## What Bitting is
 
 * **Local-only.** Your vault is one encrypted file on your disk. There is no
   server, no account, no sync service, and no telemetry. If you want the file on
@@ -34,7 +39,7 @@ have to run our memory-hard key derivation inside a coherent quantum state.
 
 The important consequence: **"harvest now, decrypt later" does not apply to this
 vault.** That attack works by recording a public-key key exchange today and
-breaking it with a quantum computer later. Keel's confidentiality path contains
+breaking it with a quantum computer later. Bitting's confidentiality path contains
 no public-key cryptography at all — your passphrase goes through Argon2id to a
 symmetric key, and that is the whole chain. Someone who steals your vault file
 today and waits twenty years is in exactly the position they are in now.
@@ -44,14 +49,14 @@ signing**, because a signature has to resist forgery for as long as the software
 is trusted. Releases are signed with both Ed25519 and ML-DSA-65 (FIPS 204), and
 verification requires both to pass.
 
-## What Keel does not protect against
+## What Bitting does not protect against
 
 Being honest about this is part of the design, and any password manager that
 claims otherwise is misleading you.
 
 * **Malware already running as you, on an unlocked vault.** On a normal desktop
   operating system, one program running as your user account is not isolated from
-  another. Keel raises the cost (locked memory, aggressive auto-lock, minimal
+  another. Bitting raises the cost (locked memory, aggressive auto-lock, minimal
   decrypted footprint, per-request approval for AI access, an audit log) and makes
   abuse visible, but a determined attacker already executing code as you, while
   your vault is unlocked, wins.
@@ -59,7 +64,7 @@ claims otherwise is misleading you.
   implants.** These defeat every password manager. The defences are full-disk
   encryption, Secure Boot, and keeping your machine clean — not us.
 * **A guessable master passphrase.** Argon2id at 512 MiB makes each guess
-  expensive, but it cannot save a passphrase that appears in a wordlist. Keel
+  expensive, but it cannot save a passphrase that appears in a wordlist. Bitting
   offers a one-click seven-word passphrase (~90 bits) and refuses weak ones.
 * **Coercion.** There are no hidden volumes and no plausible deniability. The
   file has a magic number and a readable header; pretending otherwise would be a
@@ -91,7 +96,7 @@ source and confirm it matches the published artifacts byte for byte. See
 [`docs/VERIFY.md`](docs/VERIFY.md) and
 [`docs/REPRODUCE.md`](docs/REPRODUCE.md) once releases begin.
 
-Note that Keel is distributed **without paid code-signing certificates**, so
+Note that Bitting is distributed **without paid code-signing certificates**, so
 macOS and Windows will show warnings on downloaded installers. Install via
 Homebrew, Scoop, or your Linux package manager to avoid them, and see the install
 docs for why reproducible builds plus offline signatures are a stronger integrity
@@ -100,41 +105,41 @@ guarantee than a purchased certificate.
 ## Trying it
 
 ```sh
-git clone https://github.com/mdferdousalam/keel
-cd keel
+git clone https://github.com/mdferdousalam/bitting
+cd bitting
 cargo build --release
 
-./target/release/keel init          # create a vault
-./target/release/keel add "Example Bank" --username you@example.com
-./target/release/keel list
-./target/release/keel show "Example Bank"     # in a native window, hidden from screen recording on macOS
-keel get "Example Bank" --show
+./target/release/bitting init          # create a vault
+./target/release/bitting add "Example Bank" --username you@example.com
+./target/release/bitting list
+./target/release/bitting show "Example Bank"     # in a native window, hidden from screen recording on macOS
+bitting get "Example Bank" --show
 ```
 
-`keel add` generates a 20-character password (~129 bits) and never prints it. `keel get`
+`bitting add` generates a 20-character password (~129 bits) and never prints it. `bitting get`
 copies rather than printing unless you pass `--show`, because a password on a terminal lives
 on in scrollback.
 
 Migrating from another manager:
 
 ```sh
-keel import ~/Downloads/passwords.csv --dry-run   # see what it found
-keel import ~/Downloads/passwords.csv --shred     # import, then delete the file
+bitting import ~/Downloads/passwords.csv --dry-run   # see what it found
+bitting import ~/Downloads/passwords.csv --shred     # import, then delete the file
 ```
 
 Filling passwords in a browser:
 
 ```sh
-keel setup-browser --extension-id <ID>   # registers the bridge; see extension/README.md
+bitting setup-browser --extension-id <ID>   # registers the bridge; see extension/README.md
 ```
 
-Nothing of Keel's runs on a page until you click the toolbar button — there is no
+Nothing of Bitting's runs on a page until you click the toolbar button — there is no
 `<all_urls>` permission and no content script injected on load. That rules out
 detect-and-offer-on-page-load, which is the root of most extension credential-leak CVEs.
 Matching is decided by the agent, not the extension: a stored entry fills its own site and
 its subdomains, and never a look-alike, a different port, or an `http` page.
 
-There is a desktop window too — `keel-desktop` — which does everything above without a
+There is a desktop window too — `bitting-desktop` — which does everything above without a
 terminal, shows the health report and the activity log, and is where approval prompts for AI
 requests appear. It never receives a password: entries show as bullets, and copying is done
 by the agent.
@@ -142,12 +147,12 @@ by the agent.
 Giving an AI agent access — it starts with nothing, and you grant explicitly:
 
 ```sh
-keel grant claude-code --scope metadata --scope use --tag 'work/*' --minutes 30
-keel grants
-keel revoke claude-code
+bitting grant claude-code --scope metadata --scope use --tag 'work/*' --minutes 30
+bitting grants
+bitting revoke claude-code
 
-keel approvals                          # what is waiting for you, and how to answer
-keel settings --agent-reveal on         # let agents ask to *see* a password (off by default)
+bitting approvals                          # what is waiting for you, and how to answer
+bitting settings --agent-reveal on         # let agents ask to *see* a password (off by default)
 ```
 
 That last one deserves a note. With it off — the shipped default — an agent can log you into
@@ -158,24 +163,24 @@ entry, and approval covers exactly one request.
 Checking on your passwords, and on what has been touching them:
 
 ```sh
-keel audit          # which stored passwords are reused, weak, or old
-keel log            # recent vault activity, with the audit chain verified
+bitting audit          # which stored passwords are reused, weak, or old
+bitting log            # recent vault activity, with the audit chain verified
 ```
 
 Leaving is supported, because a password manager you cannot get your data out of is a
 trap:
 
 ```sh
-keel export --format csv --output ~/keel-export.csv   # asks for your passphrase again
+bitting export --format csv --output ~/bitting-export.csv   # asks for your passphrase again
 ```
 
-`keel export` requires the master passphrase even though the vault is unlocked, writes
+`bitting export` requires the master passphrase even though the vault is unlocked, writes
 the file owner-only, refuses to overwrite anything, and records the attempt — successful
 or not — in the audit log.
 
-`keel audit` decrypts every record to do its work, so it is available only from the
+`bitting audit` decrypts every record to do its work, so it is available only from the
 command line and the desktop app — never to an AI agent or the browser extension,
-whatever they have been granted. It prints no password values. `keel log` reports
+whatever they have been granted. It prints no password values. `bitting log` reports
 whether the hash chain verifies; see
 [the threat model](docs/threat-model.md#what-the-audit-log-does-and-does-not-prove)
 for what that does and does not prove.
@@ -202,17 +207,17 @@ when violated, not merely to pass when clean.
 
 | Path | Contents |
 |---|---|
-| `crates/keel-crypto` | Key hierarchy, Argon2id, XChaCha20-Poly1305, generator. No I/O. |
-| `crates/keel-format` | On-disk vault format. Pure and fuzz-tested. |
-| `crates/keel-hardening` | Page locking and anti-debug. The only crate permitted `unsafe`. |
-| `crates/keel-store` | Atomic writes, locking, backups. |
-| `crates/keel-core` | Vault logic, auto-lock, audit chain, policy engine. |
-| `crates/keel-agent` | The one process that holds unlocked keys. |
-| `crates/keel-client` | Client library. Deliberately has no access to crypto. |
-| `crates/keel-cli` | The `keel` command. |
-| `crates/keel-mcp` | MCP server for AI agents. |
-| `crates/keel-native-host` | Browser native-messaging bridge. |
-| `crates/keel-import` | CSV importers. Depends on no other Keel crate. |
+| `crates/bitting-crypto` | Key hierarchy, Argon2id, XChaCha20-Poly1305, generator. No I/O. |
+| `crates/bitting-format` | On-disk vault format. Pure and fuzz-tested. |
+| `crates/bitting-hardening` | Page locking and anti-debug. The only crate permitted `unsafe`. |
+| `crates/bitting-store` | Atomic writes, locking, backups. |
+| `crates/bitting-core` | Vault logic, auto-lock, audit chain, policy engine. |
+| `crates/bitting-agent` | The one process that holds unlocked keys. |
+| `crates/bitting-client` | Client library. Deliberately has no access to crypto. |
+| `crates/bitting-cli` | The `bitting` command. |
+| `crates/bitting-mcp` | MCP server for AI agents. |
+| `crates/bitting-native-host` | Browser native-messaging bridge. |
+| `crates/bitting-import` | CSV importers. Depends on no other Bitting crate. |
 | `apps/desktop` | Tauri desktop application. Not yet built. |
 | `extension` | Browser extension. Not yet built. |
 
@@ -225,7 +230,7 @@ Stated so nothing here is mistaken for a bug:
 
 - **Pairing between the extension and the agent.** The plan calls for a SAS code and a Noise
   channel. Not built. Its value is against a same-user process impersonating the browser,
-  which is outside the threat model the rest of Keel is written against — but it is a real gap.
+  which is outside the threat model the rest of Bitting is written against — but it is a real gap.
 - **Hiding the reveal overlay from screen capture on Linux and Windows.** It works on macOS
   (`NSWindowSharingType::None`). Linux has no mechanism a client can use — X11 has none at all,
   and Wayland exposes nothing to opt out of a compositor's screencopy — and the Windows call is
@@ -238,18 +243,18 @@ Stated so nothing here is mistaken for a bug:
 - **Windows — it builds and passes tests, but the agent refuses to start.** It now compiles:
   CI runs `cargo test --workspace --locked` on `windows-2022` with warnings denied, and it is
   green. What remains is that the agent has no named-pipe transport, so `Transport::bind`
-  returns `Unsupported` — see `crates/keel-agent/src/transport.rs`. The transport is specified
+  returns `Unsupported` — see `crates/bitting-agent/src/transport.rs`. The transport is specified
   in [`docs/architecture.md`](docs/architecture.md) but not written, because its load-bearing
   part is a current-user-only DACL check whose failure mode is to silently grant access, and
   that is not code to write without being able to run it. macOS and Linux work.
 
   This entry has now been wrong in both directions, which is worth recording rather than
   quietly editing. It first said only that the agent "refuses to start", which was too
-  generous while `keel-hardening` was importing windows-sys symbols from the wrong modules and
+  generous while `bitting-hardening` was importing windows-sys symbols from the wrong modules and
   the crate did not compile at all. That was fixed, the "does not build" wording outlived the
   problem, and a green Windows CI job went unnoticed against a README asserting the opposite.
   A claim about what is broken decays the same way a claim about what works does.
-- **Signed releases.** No signing keys exist yet, so `keel verify-release` refuses rather than
+- **Signed releases.** No signing keys exist yet, so `bitting verify-release` refuses rather than
   pretending to verify anything.
 
 ## Licence
@@ -260,8 +265,8 @@ Stated so nothing here is mistaken for a bug:
 | | Licence | |
 |---|---|---|
 | Everything not named below — the vault core, the agent, the CLI, the apps, the extension | `AGPL-3.0-or-later` | Modify it freely; if you distribute it, or run a modified version as a network service, the source goes with it |
-| `crates/keel-proto` | `Apache-2.0` | The wire protocol. Anything may speak to the agent |
-| `crates/keel-client` | `MPL-2.0` | Embeddable in a closed application; improvements to *these files* come back |
+| `crates/bitting-proto` | `Apache-2.0` | The wire protocol. Anything may speak to the agent |
+| `crates/bitting-client` | `MPL-2.0` | Embeddable in a closed application; improvements to *these files* come back |
 
 Affero rather than plain GPL because the obvious way to monetise a password manager is to
 host the sync for people, and the plain GPL does not reach someone who runs your code as a

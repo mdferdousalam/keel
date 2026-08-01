@@ -1,4 +1,4 @@
-# Reproducing a Keel build
+# Reproducing a Bitting build
 
 A signature proves the maintainer signed those bytes. It does not prove those bytes came from
 the published source. Rebuilding is what closes that gap, and it is the only check that does
@@ -25,8 +25,8 @@ reproducible for a year.
 ## Rebuilding
 
 ```sh
-git clone https://github.com/mdferdousalam/keel
-cd keel
+git clone https://github.com/mdferdousalam/bitting
+cd bitting
 git checkout v1.0.0          # the tag you are checking
 
 export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
@@ -36,10 +36,10 @@ export RUSTFLAGS="--remap-path-prefix=$PWD=/build --remap-path-prefix=$HOME/.car
 
 rustup target add x86_64-unknown-linux-musl
 cargo build --locked --profile release-repro \
-  --target x86_64-unknown-linux-musl -p keel-cli -p keel-agent
+  --target x86_64-unknown-linux-musl -p bitting-cli -p bitting-agent
 
-sha256sum target/x86_64-unknown-linux-musl/release-repro/keel \
-          target/x86_64-unknown-linux-musl/release-repro/keel-agent
+sha256sum target/x86_64-unknown-linux-musl/release-repro/bitting \
+          target/x86_64-unknown-linux-musl/release-repro/bitting-agent
 ```
 
 Compare those hashes against the published `SHA256SUMS`. `--locked` is not optional: without
@@ -73,12 +73,12 @@ signing. Build locally without signing and compare against that.
 --remove-signature` does not always restore the exact pre-signing bytes:
 
 ```sh
-cp keel keel-stripped
-codesign --remove-signature keel-stripped
-shasum -a 256 keel-stripped
+cp bitting bitting-stripped
+codesign --remove-signature bitting-stripped
+shasum -a 256 bitting-stripped
 ```
 
-Keel is ad-hoc signed rather than notarized because the project has no paid Apple Developer
+Bitting is ad-hoc signed rather than notarized because the project has no paid Apple Developer
 ID. Ad-hoc signing is not optional even so: an unsigned arm64 binary will not execute at all
 on Apple Silicon.
 
@@ -94,7 +94,7 @@ docker run --rm -v "$PWD:/src" -w /src \
          SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) TZ=UTC LC_ALL=C \
          RUSTFLAGS="--remap-path-prefix=/src=/build" \
          cargo build --locked --profile release-repro \
-           --target x86_64-unknown-linux-musl -p keel-cli -p keel-agent'
+           --target x86_64-unknown-linux-musl -p bitting-cli -p bitting-agent'
 ```
 
 ## If your rebuild does not match

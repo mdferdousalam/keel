@@ -13,7 +13,7 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    if let Ok(body) = keel_format::RecordBody::decode_padded(data) {
+    if let Ok(body) = bitting_format::RecordBody::decode_padded(data) {
         // Anything that decodes must survive a re-encode, or a load-then-save cycle
         // would silently corrupt a user's entry.
         let _ = body.encode_padded();

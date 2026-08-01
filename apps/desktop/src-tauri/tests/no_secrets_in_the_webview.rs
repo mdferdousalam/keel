@@ -29,8 +29,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use keel_desktop::masking;
-use keel_proto::{ClientKind, EntryRef, Field, Request, Response, SecretAction};
+use bitting_desktop::masking;
+use bitting_proto::{ClientKind, EntryRef, Field, Request, Response, SecretAction};
 
 /// The password that must not appear in anything the webview receives.
 const CANARY: &str = "CANARY-GUI-PASSWORD-DO-NOT-LEAK-8842";
@@ -64,7 +64,7 @@ impl Fixture {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("agent.sock");
-        let vault = dir.path().join("vault.keel");
+        let vault = dir.path().join("vault.bitting");
         let passphrase_file = dir.path().join("passphrase");
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -81,35 +81,35 @@ impl Fixture {
         };
         // The environment has to be set before anything connects, because the client reads
         // it to find the socket.
-        std::env::set_var("KEEL_AGENT_SOCKET", &fixture.socket);
-        std::env::set_var("KEEL_VAULT", &fixture.vault);
-        std::env::set_var("KEEL_AGENT_BINARY", binary("keel-agent"));
-        std::env::set_var("KEEL_PASSPHRASE_FILE", &fixture.passphrase_file);
-        std::env::set_var("KEEL_AGENT_IDLE_EXIT_SECS", "20");
+        std::env::set_var("BITTING_AGENT_SOCKET", &fixture.socket);
+        std::env::set_var("BITTING_VAULT", &fixture.vault);
+        std::env::set_var("BITTING_AGENT_BINARY", binary("bitting-agent"));
+        std::env::set_var("BITTING_PASSPHRASE_FILE", &fixture.passphrase_file);
+        std::env::set_var("BITTING_AGENT_IDLE_EXIT_SECS", "20");
         std::env::remove_var("XDG_RUNTIME_DIR");
 
-        fixture.keel(&["init", "--tier", "interactive"]);
+        fixture.bitting(&["init", "--tier", "interactive"]);
         fixture.store_canary();
         fixture
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(binary("keel"));
+        let mut command = Command::new(binary("bitting"));
         command
-            .env("KEEL_AGENT_SOCKET", &self.socket)
-            .env("KEEL_VAULT", &self.vault)
-            .env("KEEL_AGENT_BINARY", binary("keel-agent"))
-            .env("KEEL_PASSPHRASE_FILE", &self.passphrase_file)
-            .env("KEEL_AGENT_IDLE_EXIT_SECS", "20")
+            .env("BITTING_AGENT_SOCKET", &self.socket)
+            .env("BITTING_VAULT", &self.vault)
+            .env("BITTING_AGENT_BINARY", binary("bitting-agent"))
+            .env("BITTING_PASSPHRASE_FILE", &self.passphrase_file)
+            .env("BITTING_AGENT_IDLE_EXIT_SECS", "20")
             .env_remove("XDG_RUNTIME_DIR");
         command
     }
 
-    fn keel(&self, args: &[&str]) {
-        let output = self.command().args(args).output().expect("run keel");
+    fn bitting(&self, args: &[&str]) {
+        let output = self.command().args(args).output().expect("run bitting");
         assert!(
             output.status.success(),
-            "`keel {}` failed: {}",
+            "`bitting {}` failed: {}",
             args.join(" "),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -129,14 +129,14 @@ impl Fixture {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("spawn keel add");
+            .expect("spawn bitting add");
         child
             .stdin
             .as_mut()
             .expect("stdin")
             .write_all(CANARY.as_bytes())
             .expect("write the canary");
-        let output = child.wait_with_output().expect("keel add");
+        let output = child.wait_with_output().expect("bitting add");
         assert!(
             output.status.success(),
             "storing the canary failed: {}",
@@ -159,8 +159,8 @@ impl Drop for Fixture {
 /// exercises the layer they are made of: the same requests, through the same `masking`
 /// constructors, serialised the same way. That is where a leak would live — a command body
 /// is three lines of plumbing over these two things.
-fn agent() -> keel_client::Client {
-    keel_client::Client::connect(ClientKind::Gui, "keel-desktop-test")
+fn agent() -> bitting_client::Client {
+    bitting_client::Client::connect(ClientKind::Gui, "bitting-desktop-test")
         .expect("connect to the agent")
 }
 
@@ -302,7 +302,7 @@ fn no_command_result_carries_a_stored_password() {
     let rotated = client
         .request(&Request::RotateSecret {
             reference: EntryRef(reference),
-            secret: keel_proto::SecretSource::Generate {
+            secret: bitting_proto::SecretSource::Generate {
                 length: None,
                 words: None,
             },

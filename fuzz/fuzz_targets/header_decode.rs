@@ -13,7 +13,7 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    if let Ok((header, len)) = keel_format::Header::decode(data) {
+    if let Ok((header, len)) = bitting_format::Header::decode(data) {
         // A successful decode must be self-consistent: it cannot claim to have
         // consumed more than it was given, and re-encoding must reproduce the same
         // bytes. A mismatch would mean two different files could decode to the same

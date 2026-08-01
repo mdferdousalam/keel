@@ -67,16 +67,16 @@ jobs:
         # non-socket returns ECONNREFUSED there and something else on macOS.
         #
         # windows-2022 is back, and it is a *compile* check rather than a claim of support.
-        # Keel does not run on Windows — the agent has no named-pipe transport, and
+        # Bitting does not run on Windows — the agent has no named-pipe transport, and
         # `docs/architecture.md` specifies what has to be built. What this job is for is
         # keeping the portable code healthy so that work is not preceded by clearing a
         # pile of accumulated breakage. Most integration tests are `#![cfg(unix)]` and
         # compile to nothing there, which is expected.
         #
-        # It was removed for one commit because `keel-hardening` imported windows-sys
+        # It was removed for one commit because `bitting-hardening` imported windows-sys
         # symbols from the wrong modules. Those were corrected against the crate source;
         # this job is how that correction gets verified, since none of it can be compiled
-        # on the machine Keel is developed on.
+        # on the machine Bitting is developed on.
         os: [ubuntu-latest, macos-14, windows-2022]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

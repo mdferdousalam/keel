@@ -23,10 +23,10 @@ fuzz/artifacts
 # Never commit anything that could hold real secrets. These patterns exist so
 # a stray test artifact cannot become a published credential leak.
 # --------------------------------------------------------------------------
-*.keel
-*.keel.bak.*
-*.keel.tmp.*
-*.keel.lock
+*.bitting
+*.bitting.bak.*
+*.bitting.tmp.*
+*.bitting.lock
 vault.state
 *.minisig
 *.mldsa.sig
@@ -34,3 +34,4 @@ vault.state
 *.key
 secret.key
 minisign.key
+.gstack/
