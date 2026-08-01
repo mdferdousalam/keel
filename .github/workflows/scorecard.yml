@@ -17,7 +17,13 @@ on:
     - cron: "41 5 * * 2"
   workflow_dispatch:
 
-permissions: read-all
+# The upstream Scorecard template uses `read-all` here. Narrowed to match every other
+# workflow in this repository: the analysis job below declares exactly the scopes it needs,
+# so the workflow-level default only has to cover the checkout. Flagged by zizmor's
+# excessive-permissions audit, and it was right — a supply-chain scorer asking for blanket
+# read is a poor advertisement for its own advice.
+permissions:
+  contents: read
 
 jobs:
   analysis:

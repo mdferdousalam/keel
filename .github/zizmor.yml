@@ -1,0 +1,26 @@
+# zizmor configuration, used by .github/workflows/quality.yml.
+#
+# One rule is disabled, with the reason recorded. Everything else stays armed, which is the
+# point: raising --min-severity to hide this single finding would also hide the next medium
+# one, and that is the finding worth hearing about.
+
+rules:
+  superfluous-actions:
+    # zizmor argues that `dtolnay/rust-toolchain` duplicates what the runner already provides
+    # and should be a hand-written `rustup` script instead.
+    #
+    # Declined. The action is pinned to a commit SHA, widely reviewed, and handles component
+    # and target installation across three operating systems. Replacing it with bespoke shell
+    # in a dozen jobs would trade a reviewed dependency for unreviewed code that does the same
+    # thing, in a repository whose workflows build and publish signed releases. That is the
+    # wrong direction for a supply-chain audit to push, so it is refused explicitly rather
+    # than silenced by a severity threshold.
+    ignore:
+      - audit.yml
+      - ci.yml
+      - deep-checks.yml
+      - links.yml
+      - quality.yml
+      - rebuild.yml
+      - release.yml
+      - supply-chain.yml

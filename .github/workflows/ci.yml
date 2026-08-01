@@ -29,6 +29,8 @@ jobs:
       # A tag can be moved; a SHA cannot. Dependabot proposes updates, which are
       # reviewed like any other dependency change.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
@@ -70,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Read the declared MSRV
         id: msrv
         run: |
@@ -122,6 +126,8 @@ jobs:
         os: [ubuntu-latest, macos-14, windows-2022]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
@@ -152,6 +158,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
@@ -190,6 +198,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
@@ -232,6 +242,8 @@ jobs:
       RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: nightly
@@ -273,6 +285,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: 1.93.1
@@ -289,11 +303,26 @@ jobs:
             libglib2.0-dev
       - run: cargo install cargo-llvm-cov --locked
       - name: Measure
-        # The crash test spawns and SIGKILLs child processes, which does not survive
-        # instrumentation cleanly; the KDF calibration tests are simply slow.
+        # Library unit tests only, and only the crates where a coverage number means
+        # something.
+        #
+        # `--workspace` fails outright: the CLI and MCP end-to-end tests exec the real
+        # `bitting` binary and spawn an agent, and cargo-llvm-cov redirects the target
+        # directory for instrumentation, so the fixture looks for a binary that is not where
+        # it expects. Every one of those tests failed for that reason and none of them for a
+        # reason about the code. They are covered properly by the `test` job above, on all
+        # three operating systems, uninstrumented.
+        #
+        # What is left is the vault core — crypto, format, storage, policy — which is where
+        # an untested branch actually matters.
         run: |
-          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info \
-            -- --skip killing_a_writer_mid_save
+          cargo llvm-cov --locked --lib --lcov --output-path lcov.info \
+            -p bitting-crypto \
+            -p bitting-format \
+            -p bitting-store \
+            -p bitting-core \
+            -p bitting-proto \
+            -p bitting-import
       - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: lcov.info
