@@ -13,9 +13,17 @@ class Bitting < Formula
   license "AGPL-3.0-or-later"
   version "0.0.0-unreleased"
 
+  # The **source** archive, not the binary tarball. `install` below runs `cargo install
+  # --path crates/...`, which needs the crate tree; this used to point at
+  # `bitting-<version>-macos-universal.tar.gz`, which contains four compiled binaries and no
+  # source, so the build would have failed on a missing path the moment anyone ran it.
+  #
+  # The binary tarball still exists on the release for people who want a direct download —
+  # it is simply not what a build-from-source formula consumes.
+  #
   # Filled in at release. Left obviously invalid rather than as a plausible-looking
   # placeholder: a wrong-but-real-shaped hash is a hash somebody might not check.
-  url "https://github.com/mdferdousalam/bitting/releases/download/v#{version}/bitting-#{version}-macos-universal.tar.gz"
+  url "https://github.com/mdferdousalam/bitting/archive/refs/tags/v#{version}.tar.gz"
   sha256 "REPLACE_WITH_THE_PUBLISHED_SHA256"
 
   depends_on "rust" => :build

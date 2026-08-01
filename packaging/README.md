@@ -24,6 +24,29 @@ be handed an offline key. That framing belongs in the release notes, not in an a
 | **AUR** (Arch) | None | `bitting` builds from source with a committed lockfile; `bitting-bin` uses the release artifact. |
 | **`cargo install bitting-cli`** | None | Builds from source. Always available. |
 
+## What the release actually produces
+
+`release.yml` builds five targets and publishes these as a draft:
+
+| Asset | Channel it feeds |
+|---|---|
+| `bitting-<v>-macos-universal.tar.gz` | direct download (both Apple architectures, `lipo`'d and ad-hoc signed) |
+| `bitting-<v>-{aarch64,x86_64}-apple-darwin.tar.gz` | per-architecture direct download |
+| `bitting-<v>-{x86_64,aarch64}-unknown-linux-musl.tar.gz` | direct download, and the input to the packages below |
+| `bitting_<v>_{amd64,arm64}.deb`, `.rpm` | apt / dnf, built by `nfpm` from `nfpm.yaml` |
+| `SHA256SUMS`, SBOM, provenance | verification |
+
+Every archive contains all four binaries — `bitting`, `bitting-agent`, `bitting-mcp`,
+`bitting-native-host` — which is the set `nfpm.yaml` and `PKGBUILD` install. That agreement is
+load-bearing and was briefly untrue: the archive step shipped only the first two while the
+packages referenced all four.
+
+**Windows is built but not published.** `x86_64-pc-windows-gnu` is the reproducibility
+reference target and its build proves the code compiles, but the agent has no named-pipe
+transport, so `Transport::bind` returns `Unsupported` and every command fails at the transport
+layer. A Windows package would install a binary where `bitting init` cannot work.
+`scoop-bitting.json` is parked until that lands. No arm64 Windows target exists at all.
+
 ## What is here and what is not
 
 The manifests in this directory are **templates**. Every one of them needs a real release —
@@ -31,6 +54,11 @@ a tag, published artifacts, and their SHA-256 sums — before it can be filled i
 been exercised against a real download because no release exists yet. They are written now so
 that cutting the first release is a matter of substituting hashes rather than designing a
 distribution strategy under time pressure.
+
+Two of them describe a build from source, not from the binary tarball — `homebrew-bitting.rb`
+and `PKGBUILD` both compile against the committed lockfile — so their `url` is the GitHub
+source archive for the tag. The Homebrew formula pointed at the binary tarball until the first
+release was prepared, which would have failed on a missing `crates/` directory.
 
 Nothing here is signed, because the signing keys do not exist. Generating them is a maintainer
 ceremony on an offline machine, described in `SECURITY.md`, and doing it inside a development
