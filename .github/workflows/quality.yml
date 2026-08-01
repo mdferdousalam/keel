@@ -40,11 +40,15 @@ jobs:
         run: |
           set -euo pipefail
           base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
-          curl -fsSL -o actionlint.tar.gz "${base}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          # Saved under the asset's own name, not a convenient short one: `sha256sum -c`
+          # opens the path written in the manifest, so downloading to actionlint.tar.gz makes
+          # it look for a file that does not exist and fail with "FAILED open or read" —
+          # which reads like a checksum mismatch and is not one.
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$archive" "${base}/${archive}"
           curl -fsSL -o actionlint_checksums.txt "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          grep " actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz\$" actionlint_checksums.txt \
-            | sha256sum -c -
-          tar xzf actionlint.tar.gz actionlint
+          grep " ${archive}\$" actionlint_checksums.txt | sha256sum -c -
+          tar xzf "$archive" actionlint
           # Also runs shellcheck over every `run:` block, which is most of the value: the
           # release workflow is largely shell.
           ./actionlint -color
@@ -99,11 +103,13 @@ jobs:
         run: |
           set -euo pipefail
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          curl -fsSL -o gitleaks.tar.gz "${base}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          # Same reason as the actionlint step: the manifest names the file, so the download
+          # has to keep that name or `sha256sum -c` cannot find it.
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$archive" "${base}/${archive}"
           curl -fsSL -o gitleaks_checksums.txt "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz\$" gitleaks_checksums.txt \
-            | sha256sum -c -
-          tar xzf gitleaks.tar.gz gitleaks
+          grep " ${archive}\$" gitleaks_checksums.txt | sha256sum -c -
+          tar xzf "$archive" gitleaks
           # The binary, not gitleaks-action: the action requires a paid licence key for
           # organisations, and the binary is the same scanner with no such condition.
           ./gitleaks detect --source . --redact --verbose --no-banner
