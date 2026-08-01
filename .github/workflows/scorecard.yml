@@ -1,0 +1,55 @@
+name: OpenSSF Scorecard
+
+# Scores this repository's supply-chain posture against the OpenSSF checks: pinned actions,
+# branch protection, signed releases, dependency update tooling, fuzzing, SAST, and so on.
+#
+# The value is not the number. It is that the checks are a published, external checklist,
+# so a regression — someone unpinning an action, a gate becoming advisory — shows up as a
+# score drop rather than as nothing at all. Several of this project's existing practices
+# (SHA-pinned actions, reproducible builds, offline signing, a fuzzing corpus) already score
+# well; the point is to notice when that stops being true.
+
+on:
+  branch_protection_rule:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 5 * * 2"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Publishes the result to the Scorecard API so the README badge resolves, and uploads
+      # findings to the Security tab.
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        id: scorecard
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Required for the public badge and for the Branch-Protection check, which cannot
+          # be evaluated with the default token's permissions.
+          publish_results: true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - uses: github/codeql-action/upload-sarif@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1
+        with:
+          sarif_file: results.sarif

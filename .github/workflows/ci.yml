@@ -53,6 +53,48 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  # ---------------------------------------------------------------------------
+  # The minimum supported Rust version, which was a claim and not a fact.
+  #
+  # Cargo.toml declares rust-version = "1.89" and every other job in this file builds 1.93.1,
+  # so nothing verified it. It happened to be true when this job was written, which is luck:
+  # any use of a newer standard-library API would have shipped a manifest that promises to
+  # build on a compiler it cannot build on, and the first person to hit it would be a user
+  # on an older toolchain reading a confusing error.
+  #
+  # `check --all-targets` rather than `test`: MSRV is about whether the code compiles, and
+  # running the suite twice per push buys nothing.
+  # ---------------------------------------------------------------------------
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the declared MSRV
+        id: msrv
+        run: |
+          set -euo pipefail
+          # Taken from the manifest rather than written here, so the two cannot disagree.
+          version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)
+          test -n "$version" || { echo "::error::no rust-version in Cargo.toml"; exit 1; }
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "declared MSRV: ${version}"
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Install GTK and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libglib2.0-dev
+      # rust-toolchain.toml pins 1.93.1, so the MSRV toolchain has to be requested explicitly.
+      - run: cargo +${{ steps.msrv.outputs.version }} check --workspace --all-targets --locked
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -218,10 +260,59 @@ jobs:
 
   # A single required check for branch protection, so adding a job above does not
   # mean editing the protection rules.
+  # ---------------------------------------------------------------------------
+  # Line coverage. Advisory, and deliberately without a threshold.
+  #
+  # A coverage percentage is a weak proxy for whether the tests assert anything — this
+  # repository's own crash test passed for a while by parsing the wrong bytes. It is useful
+  # as a map of what is untested, not as a number to defend, so no gate is attached to it.
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.93.1
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Install GTK and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libglib2.0-dev
+      - run: cargo install cargo-llvm-cov --locked
+      - name: Measure
+        # The crash test spawns and SIGKILLs child processes, which does not survive
+        # instrumentation cleanly; the KDF calibration tests are simply slow.
+        run: |
+          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info \
+            -- --skip killing_a_writer_mid_save
+      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: lcov.info
+          # Public repositories can upload without a token. If Codecov later requires one,
+          # the artifact below still carries the report.
+          fail_ci_if_error: false
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: warn
+
   ci-success:
     name: CI
     if: always()
-    needs: [lint, test, gates, deny, fuzz-smoke]
+    # `coverage` is deliberately absent: it is advisory, and a flaky upload must not be able
+    # to block a merge. `msrv` is present — a broken MSRV is a broken promise in the manifest.
+    needs: [lint, msrv, test, gates, deny, fuzz-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any job failed

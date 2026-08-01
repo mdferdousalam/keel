@@ -1,0 +1,55 @@
+name: CodeQL
+
+# Static analysis of the Rust source. This is the first real SAST on this code: cargo-audit
+# and cargo-deny look at *dependencies*, clippy looks at style and common mistakes, and the
+# fuzz targets exercise the parser — none of them reason about data flow through the program
+# the way this does.
+#
+# Rust support went generally available in October 2025 and needs no build, so this costs a
+# checkout and an analysis rather than a full compile.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, because CodeQL's query pack improves independently of this repository — a query
+    # added next month should find a bug that exists today, without waiting for a commit.
+    - cron: "17 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            build-mode: none
+          # The workflows in this repository build, sign, and publish releases, so they are
+          # part of the attack surface and are analysed as source in their own right.
+          - language: actions
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: github/codeql-action/init@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-and-quality is broader than the default security-only pack. Worth the
+          # extra findings here: this is a password manager, and the quality queries include
+          # the resource-leak and error-handling checks that matter in exactly that context.
+          queries: security-and-quality
+
+      - uses: github/codeql-action/analyze@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1
+        with:
+          category: "/language:${{ matrix.language }}"

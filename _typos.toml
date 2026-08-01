@@ -1,0 +1,29 @@
+# Configuration for `typos`, run by .github/workflows/quality.yml.
+
+[files]
+extend-exclude = [
+  # Verbatim external datasets. Correcting a "misspelling" in either of these would be a
+  # security change disguised as a typo fix:
+  #
+  #   * common_passwords.txt is a blocklist. It already trips the checker on `tigger`, which
+  #     is a genuinely common password and precisely the kind of entry that must stay. A
+  #     spell checker silently repairing it would weaken the strength check and nothing
+  #     would fail.
+  #   * eff_long_wordlist.txt is the EFF's published diceware list. Its value is being
+  #     byte-identical to the published list; an edit of any kind invalidates it.
+  "crates/bitting-crypto/data/**",
+  # Lockfiles and vendored hashes are not prose.
+  "Cargo.lock",
+  "fuzz/Cargo.lock",
+]
+
+[default.extend-words]
+# "Unparseable" and "unparsable" are both current. The former is used consistently here.
+unparseable = "unparseable"
+# Deliberate near-miss test fixtures: `chrome-abc` versus `chrome-abd` is how the pairing
+# and KDF tests prove that a one-character difference changes the derived key.
+abd = "abd"
+
+[default.extend-identifiers]
+# False Positive Rate, in the breach-checker discussion in PLAN.md.
+FPR = "FPR"

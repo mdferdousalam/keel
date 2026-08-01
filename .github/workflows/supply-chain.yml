@@ -1,0 +1,74 @@
+name: Supply chain
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Blocks a pull request that introduces a vulnerable dependency, and enforces the licence
+  # policy at review time rather than at `cargo deny` time.
+  #
+  # This is the earliest point the licence rule can be applied. deny.toml already rejects
+  # incompatible licences, but only once the dependency is in Cargo.lock and someone runs
+  # the job; this refuses the change with the reason attached to the diff that caused it.
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: on-failure
+          # Mirrors deny.toml's allow list. Kept in step with it by hand, which is a real
+          # cost — the alternative is a licence policy enforced in one place and silently
+          # not the other.
+          allow-licenses: >-
+            AGPL-3.0-or-later, Apache-2.0, Apache-2.0 WITH LLVM-exception, MIT, MIT-0,
+            BSD-2-Clause, BSD-3-Clause, ISC, Unicode-3.0, Zlib, MPL-2.0, CC0-1.0,
+            Unlicense, BSL-1.0
+
+  # ---------------------------------------------------------------------------
+  # Snyk. Free for open source, but it needs an account and a repository token.
+  #
+  # It overlaps cargo-audit and cargo-deny, which already read the RustSec advisory database
+  # and run on every push and nightly. Kept because the databases are not identical, and
+  # skipped cleanly rather than failing when the token is absent — which is the case on
+  # every fork, and on this repository until someone configures it.
+  # ---------------------------------------------------------------------------
+  snyk:
+    name: Snyk
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is a token configured?
+        id: token
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -n "${SNYK_TOKEN:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SNYK_TOKEN is not set; skipping. Add the secret to enable this."
+          fi
+
+      - if: steps.token.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.93.1
+
+      - name: Scan
+        if: steps.token.outputs.present == 'true'
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        # The CLI via npx rather than snyk/actions: one fewer third-party action with access
+        # to this repository, for a tool that is already a third party.
+        run: npx --yes snyk@latest test --all-projects --severity-threshold=medium

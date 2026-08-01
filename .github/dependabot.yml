@@ -31,3 +31,20 @@ updates:
           - "secrecy"
           - "getrandom"
     open-pull-requests-limit: 5
+
+  # `fuzz/` is its own workspace with its own lockfile — deliberately, because fuzzing needs
+  # nightly and a sanitizer — so `directory: "/"` above never saw it and its dependencies
+  # have never been updated by anything. The fuzz targets are the code that parses hostile
+  # input on purpose, which makes an unpatched dependency there worth as much attention as
+  # one in the vault core.
+  #
+  # `apps/desktop/src-tauri` needs no entry: despite `apps/desktop` appearing in the
+  # workspace `exclude` list, `src-tauri` is itself a member and shares the root lockfile.
+  - package-ecosystem: cargo
+    directory: "/fuzz"
+    schedule:
+      interval: weekly
+    groups:
+      fuzz:
+        patterns: ["*"]
+    open-pull-requests-limit: 3

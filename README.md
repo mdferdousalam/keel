@@ -1,5 +1,11 @@
 # Bitting
 
+[![CI](https://github.com/mdferdousalam/bitting/actions/workflows/ci.yml/badge.svg)](https://github.com/mdferdousalam/bitting/actions/workflows/ci.yml)
+[![Security audit](https://github.com/mdferdousalam/bitting/actions/workflows/audit.yml/badge.svg)](https://github.com/mdferdousalam/bitting/actions/workflows/audit.yml)
+[![CodeQL](https://github.com/mdferdousalam/bitting/actions/workflows/codeql.yml/badge.svg)](https://github.com/mdferdousalam/bitting/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/mdferdousalam/bitting/badge)](https://scorecard.dev/viewer/?uri=github.com/mdferdousalam/bitting)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/licence-AGPL--3.0--or--later-blue)](LICENSE)
+
 A local-first, open-source password manager built for people who want to verify
 their tools rather than trust them.
 

@@ -1,0 +1,136 @@
+name: Deep checks
+
+# Slower analysis that does not belong on every pull request. Undefined behaviour, semver
+# breakage in the published libraries, and mutation testing.
+
+on:
+  schedule:
+    - cron: "13 2 * * 3"
+  pull_request:
+    # On PRs only when the code these checks actually reason about changes.
+    paths:
+      - "crates/**"
+      - "Cargo.lock"
+      - ".github/workflows/deep-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Undefined behaviour.
+  #
+  # This project confines `unsafe` to bitting-hardening, which is the one crate Miri cannot
+  # run: it makes real syscalls (mlock, ptrace, core-dump limits) and Miri has no host FFI.
+  # What Miri *can* check is the code that parses hostile bytes and handles key material —
+  # out-of-bounds reads, invalid transmutes, aliasing violations in the buffer handling that
+  # the fuzzers exercise for crashes but not for UB.
+  # ---------------------------------------------------------------------------
+  miri:
+    name: Miri (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # bitting-crypto is excluded on purpose: Argon2id at real parameters under Miri is
+        # somewhere between hours and never. Its pure helpers are covered by the format
+        # crate's round-trips. Revisit with a test filter if that stops being true.
+        crate: [bitting-format, bitting-proto, bitting-store]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: nightly
+          components: miri
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Run the test suite under Miri
+        env:
+          # Strict provenance and stacked-borrows checking. `-Zmiri-disable-isolation` is
+          # required because the store crate reads the clock and the filesystem; without it
+          # Miri aborts on the first such call rather than checking anything.
+          MIRIFLAGS: "-Zmiri-strict-provenance -Zmiri-disable-isolation"
+        run: cargo +nightly miri test -p ${{ matrix.crate }}
+
+  # ---------------------------------------------------------------------------
+  # API compatibility for the two crates other people are meant to depend on.
+  #
+  # bitting-proto (Apache-2.0) and bitting-client (MPL-2.0) are published as libraries, so a
+  # silent breaking change in either is a broken build for a downstream user who followed
+  # semver and expected not to care.
+  # ---------------------------------------------------------------------------
+  semver:
+    name: Semver (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [bitting-proto, bitting-client]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Is there a published baseline to compare against?
+        id: baseline
+        run: |
+          set -euo pipefail
+          # cargo-semver-checks diffs against the newest version on crates.io. Nothing is
+          # published yet, so until the first release this job has nothing to compare and
+          # would fail for a reason that is not a defect. Check rather than assume.
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -A 'bitting-ci' "https://crates.io/api/v1/crates/${{ matrix.crate }}")
+          if [ "$code" = "200" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ matrix.crate }} is not on crates.io yet; no baseline to diff."
+          fi
+
+      - if: steps.baseline.outputs.published == 'true'
+        run: cargo install cargo-semver-checks --locked
+      - if: steps.baseline.outputs.published == 'true'
+        run: cargo semver-checks check-release -p ${{ matrix.crate }}
+
+  # ---------------------------------------------------------------------------
+  # Mutation testing: break the code deliberately and see whether the tests notice.
+  #
+  # Scoped to the crypto and format crates. A surviving mutant there means a test asserts
+  # something weaker than it appears to — which, for a vault parser, is the difference
+  # between a test suite and the appearance of one.
+  # ---------------------------------------------------------------------------
+  mutants:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    # Scheduled only. A full mutant run is far too slow for a pull request.
+    if: github.event_name != 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install cargo-mutants --locked
+      - name: Hunt for surviving mutants
+        run: |
+          # --in-place keeps one build directory rather than copying the tree per mutant.
+          # The timeout multiplier accommodates the KDF calibration probe, which is slow by
+          # design and would otherwise look like a hang.
+          cargo mutants --in-place --timeout-multiplier 3 \
+            --package bitting-format --package bitting-crypto \
+            || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: mutants-report
+          path: mutants.out/
+          if-no-files-found: warn
