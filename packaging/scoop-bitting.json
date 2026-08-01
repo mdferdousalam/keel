@@ -5,23 +5,25 @@
   "homepage": "https://github.com/mdferdousalam/bitting",
   "license": "AGPL-3.0-or-later",
   "notes": [
+    "PARKED — do not submit this manifest to a Scoop bucket yet. Two things must land first:",
+    "",
+    "  1. The agent has no named-pipe transport. `Transport::bind` returns Unsupported on",
+    "     Windows, and the CLI reaches the agent for every command, so `bitting init` fails",
+    "     at the transport layer. See docs/architecture.md.",
+    "  2. No Windows artifact is published. release.yml builds x86_64-pc-windows-gnu as the",
+    "     reproducibility reference target, but withholds it from the release for reason (1).",
+    "",
+    "The URLs below therefore describe the intended shape and do not resolve today.",
+    "",
     "Bitting is distributed without a paid code-signing certificate. Installing through Scoop",
     "avoids SmartScreen's browser-download reputation check, which is why this is the",
-    "recommended Windows channel.",
+    "recommended Windows channel once it works.",
     "",
-    "Create a vault with:  bitting init",
-    "",
-    "NOTE: the agent does not yet run on Windows. The named-pipe transport is specified in",
-    "docs/architecture.md and not implemented, so `bitting` will report that this platform is",
-    "unsupported. This manifest exists so the channel is ready when it is."
+    "Create a vault with:  bitting init"
   ],
   "architecture": {
     "64bit": {
-      "url": "https://github.com/mdferdousalam/bitting/releases/download/v0.0.0-unreleased/bitting-0.0.0-unreleased-x86_64-pc-windows-msvc.zip",
-      "hash": "REPLACE_WITH_THE_PUBLISHED_SHA256"
-    },
-    "arm64": {
-      "url": "https://github.com/mdferdousalam/bitting/releases/download/v0.0.0-unreleased/bitting-0.0.0-unreleased-aarch64-pc-windows-msvc.zip",
+      "url": "https://github.com/mdferdousalam/bitting/releases/download/v0.0.0-unreleased/bitting-0.0.0-unreleased-x86_64-pc-windows-gnu.zip",
       "hash": "REPLACE_WITH_THE_PUBLISHED_SHA256"
     }
   },
@@ -37,10 +39,7 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/mdferdousalam/bitting/releases/download/v$version/bitting-$version-x86_64-pc-windows-msvc.zip"
-      },
-      "arm64": {
-        "url": "https://github.com/mdferdousalam/bitting/releases/download/v$version/bitting-$version-aarch64-pc-windows-msvc.zip"
+        "url": "https://github.com/mdferdousalam/bitting/releases/download/v$version/bitting-$version-x86_64-pc-windows-gnu.zip"
       }
     },
     "hash": {

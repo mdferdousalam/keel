@@ -133,6 +133,34 @@ jobs:
           cargo build --locked --profile release-repro --target ${{ matrix.target }} \
             -p bitting-cli -p bitting-agent -p bitting-mcp -p bitting-native-host
 
+      # macOS: ad-hoc signing only. There is no paid Apple Developer ID, so the app cannot be
+      # notarized. Ad-hoc signing is still mandatory, not optional: an unsigned arm64 binary
+      # will not execute at all on Apple Silicon.
+      #
+      # The unsigned hash is published alongside, because `codesign` embeds a timestamp and so
+      # a signed artifact is not reproducible. See docs/REPRODUCE.md.
+      #
+      # This MUST run before Package. It used to run after, which meant the archive was built
+      # from unsigned binaries and only the discarded on-disk copies were ever signed — so the
+      # published macOS tarball contained binaries that would not execute on Apple Silicon at
+      # all. The signing step reported success throughout.
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bindir="target/${{ matrix.target }}/release-repro"
+          # Same four binaries as the Package step below.
+          for binary in bitting bitting-agent bitting-mcp bitting-native-host; do
+            shasum -a 256 "${bindir}/${binary}" \
+              | sed "s|${bindir}/|unsigned:|" >> dist/UNSIGNED-HASHES
+            codesign --force --sign - --options runtime "${bindir}/${binary}"
+          done
+          # Prove it took, rather than trusting that codesign exited 0.
+          for binary in bitting bitting-agent bitting-mcp bitting-native-host; do
+            codesign --verify --strict "${bindir}/${binary}"
+          done
+
       - name: Package
         id: package
         run: |
@@ -143,9 +171,19 @@ jobs:
           mkdir -p "$outdir"
           bindir="target/${target}/release-repro"
 
+          # Every binary the build step compiles, and the same set packaging/nfpm.yaml and
+          # packaging/PKGBUILD install. These had drifted: the build was corrected to produce
+          # all four but the archive still carried only `bitting` and `bitting-agent`, so the
+          # published tarball was missing two of the binaries the packages reference. That is
+          # the same failure the comment on the build step describes, one step further down
+          # the pipeline. Keep this list, the `cargo build -p` list, and the signing loop below
+          # in agreement.
+          binaries=(bitting bitting-agent bitting-mcp bitting-native-host)
+
           if [[ "$target" == *windows* ]]; then
             name="bitting-${version}-${target}.zip"
-            (cd "$bindir" && zip -X -q "../../../${outdir}/${name}" bitting.exe bitting-agent.exe)
+            exes=("${binaries[@]/%/.exe}")
+            (cd "$bindir" && zip -X -q "../../../${outdir}/${name}" "${exes[@]}")
           else
             name="bitting-${version}-${target}.tar.gz"
             # Fixed ownership, sorted names, and a pinned mtime: tar metadata is otherwise a
@@ -154,32 +192,141 @@ jobs:
                 --owner=0 --group=0 --numeric-owner \
                 --mtime="@${SOURCE_DATE_EPOCH:-0}" \
                 -czf "${outdir}/${name}" \
-                -C "$bindir" bitting bitting-agent
+                -C "$bindir" "${binaries[@]}"
           fi
           echo "artifact=${name}" >> "$GITHUB_OUTPUT"
         env:
           SOURCE_DATE_EPOCH: ${{ steps.source_date.outputs.epoch }}
 
-      # macOS: ad-hoc signing only. There is no paid Apple Developer ID, so the app cannot be
-      # notarized. Ad-hoc signing is still mandatory, not optional: an unsigned arm64 binary
-      # will not execute at all on Apple Silicon.
-      #
-      # The unsigned hash is published alongside, because `codesign` embeds a timestamp and so
-      # a signed artifact is not reproducible. See docs/REPRODUCE.md.
-      - name: Ad-hoc sign (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          bindir="target/${{ matrix.target }}/release-repro"
-          for binary in bitting bitting-agent; do
-            shasum -a 256 "${bindir}/${binary}" \
-              | sed "s|${bindir}/|unsigned:|" >> dist/UNSIGNED-HASHES
-            codesign --force --sign - --options runtime "${bindir}/${binary}"
-          done
-
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # A single macOS download that works on both architectures.
+  #
+  # packaging/homebrew-bitting.rb has always referenced
+  # `bitting-<version>-macos-universal.tar.gz`, and nothing ever produced it — the build
+  # emits one tarball per architecture. `brew install` would have failed on a 404 the first
+  # time anyone tried it.
+  #
+  # No reproducibility is given up here: both darwin targets are already
+  # `reproducible: false`, because `codesign` embeds a timestamp.
+  # ---------------------------------------------------------------------------
+  universal-macos:
+    name: macOS universal binary
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dist-*-apple-darwin
+          path: arch
+          merge-multiple: false
+
+      - name: lipo the two architectures together
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p universal dist
+
+          arm=$(mktemp -d); intel=$(mktemp -d)
+          tar xzf "arch/dist-aarch64-apple-darwin/bitting-${version}-aarch64-apple-darwin.tar.gz" -C "$arm"
+          tar xzf "arch/dist-x86_64-apple-darwin/bitting-${version}-x86_64-apple-darwin.tar.gz" -C "$intel"
+
+          for binary in bitting bitting-agent bitting-mcp bitting-native-host; do
+            lipo -create "${arm}/${binary}" "${intel}/${binary}" -output "universal/${binary}"
+            # lipo strips the ad-hoc signatures, so re-sign the merged binary. Without this
+            # the universal build is the one artifact on the release that cannot run on
+            # Apple Silicon.
+            codesign --force --sign - --options runtime "universal/${binary}"
+            codesign --verify --strict "universal/${binary}"
+            lipo -info "universal/${binary}"
+          done
+
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+              -czf "dist/bitting-${version}-macos-universal.tar.gz" \
+              -C universal bitting bitting-agent bitting-mcp bitting-native-host
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-macos-universal
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # .deb and .rpm.
+  #
+  # packaging/nfpm.yaml has been complete and correct for a while and was never executed by
+  # anything, so no Linux package has ever been produced. nfpm reads the binaries from
+  # ./target/release, so the musl artifacts are unpacked to that path per architecture.
+  # ---------------------------------------------------------------------------
+  linux-packages:
+    name: Linux packages (${{ matrix.arch }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist-${{ matrix.target }}
+          path: incoming
+
+      - name: Install nfpm
+        run: |
+          set -euo pipefail
+          nfpm_version=2.43.1
+          base="https://github.com/goreleaser/nfpm/releases/download/v${nfpm_version}"
+          curl -fsSL -o nfpm.tar.gz "${base}/nfpm_${nfpm_version}_Linux_x86_64.tar.gz"
+          # Verified against the release's own published checksums file rather than a hash
+          # copied in here, so bumping the version does not mean hand-editing a digest — the
+          # usual way a pinned hash quietly becomes a lie.
+          curl -fsSL -o nfpm_checksums.txt "${base}/checksums.txt"
+          grep " nfpm_${nfpm_version}_Linux_x86_64.tar.gz\$" nfpm_checksums.txt | sha256sum -c -
+          tar xzf nfpm.tar.gz nfpm
+          sudo install -m0755 nfpm /usr/local/bin/nfpm
+          nfpm --version
+
+      - name: Build the packages
+        env:
+          BITTING_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          # Package managers do not accept the tag verbatim. The leading `v` is not part of a
+          # version, and RPM forbids `-` in the Version field outright, so a pre-release tag
+          # like v0.1.0-rc.1 fails the rpm build. Both deb and rpm read `~` as "sorts before
+          # the release", which is exactly what a release candidate should do.
+          export BITTING_VERSION="${version//-/\~}"
+          echo "tag=${GITHUB_REF_NAME}  package version=${BITTING_VERSION}"
+
+          # nfpm.yaml reads binaries from ./target/release.
+          mkdir -p target/release dist
+          tar xzf "incoming/bitting-${version}-${{ matrix.target }}.tar.gz" -C target/release
+          for binary in bitting bitting-agent bitting-mcp bitting-native-host; do
+            test -x "target/release/${binary}" \
+              || { echo "::error::${binary} missing from the release tarball"; exit 1; }
+          done
+          for format in deb rpm; do
+            nfpm package --config packaging/nfpm.yaml --packager "$format" --target dist/
+          done
+          ls -la dist/
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-linux-packages-${{ matrix.arch }}
           path: dist/
           if-no-files-found: error
 
@@ -253,7 +400,7 @@ jobs:
   # ---------------------------------------------------------------------------
   draft:
     name: Draft release
-    needs: [build, compare-builds]
+    needs: [build, universal-macos, linux-packages, compare-builds]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -271,6 +418,18 @@ jobs:
           pattern: dist-*
           path: staging
           merge-multiple: true
+
+      # Windows is built — it proves the code compiles there, and it is the reproducibility
+      # reference target — but it is not published. The agent has no named-pipe transport, so
+      # `Transport::bind` returns Unsupported and every command fails at the transport layer:
+      # a Windows package would install a binary where even `bitting init` cannot work.
+      # Shipping it would be a claim the code does not support. Remove this step, and the
+      # note in the release body, once the transport lands.
+      - name: Withhold the Windows artifact
+        run: |
+          set -euo pipefail
+          removed=$(find staging -maxdepth 1 -name '*windows*' -print -delete | wc -l)
+          echo "withheld ${removed} Windows artifact(s) — see the comment above this step"
 
       - name: Build the checksum manifest
         run: |

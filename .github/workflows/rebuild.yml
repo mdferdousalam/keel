@@ -77,7 +77,11 @@ jobs:
         if: steps.tag.outputs.tag != ''
         run: |
           set -euo pipefail
-          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          # Assigned before export: `export X="$(cmd)"` masks the command's exit status, so a
+          # failing `git log` here would silently produce an empty SOURCE_DATE_EPOCH and a
+          # build that is not reproducible for a reason nobody could see (shellcheck SC2155).
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
           export TZ=UTC
           export LC_ALL=C
           export RUSTFLAGS="--remap-path-prefix=$PWD=/build --remap-path-prefix=$HOME/.cargo=/cargo"
