@@ -35,6 +35,9 @@ jobs:
     name: Miri (${{ matrix.crate }})
     runs-on: ubuntu-latest
     continue-on-error: true
+    # Miri interprets every instruction, so anything unbounded here runs for hours. The first
+    # version of this job had no limit and was still going after 27 minutes.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +91,15 @@ jobs:
           # Still set: it stops a Miri-only counterexample being written into
           # proptest-regressions/ and committed as though it reproduced natively.
           PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
+          # proptest's default is 256 cases per property. Under Miri that is not a thorough
+          # search, it is a job that does not finish — the first run of this workflow was
+          # still going after 27 minutes.
+          #
+          # Sixteen is the right number because Miri is not looking for a counterexample. It
+          # is looking for undefined behaviour, and UB in a parser shows up on the first
+          # input that reaches the bad path, not the two-hundredth. The full 256 cases still
+          # run in the normal test job, natively, where they cost seconds.
+          PROPTEST_CASES: "16"
         run: cargo +nightly miri test -p ${{ matrix.crate }}
 
   # ---------------------------------------------------------------------------
