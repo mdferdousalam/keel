@@ -1,0 +1,18 @@
+# Fingerprints gitleaks should not report, in `commit:file:rule:line` form.
+#
+# Fingerprints rather than a path or rule allowlist on purpose. Suppressing `generic-api-key`
+# across `crates/**` or turning it off for markdown would also suppress a real key committed
+# to those paths tomorrow. Each line here waives exactly one finding in exactly one historical
+# commit, so the scanner stays fully armed everywhere else.
+#
+# Both entries below are the `generic-api-key` heuristic matching prose *about* cryptography
+# rather than any credential. Verified by reading the source lines:
+#
+#   * CHANGELOG.md:19 — the release note describing the HKDF-SHA-512 subkey namespace.
+#   * aead.rs:1 — the module doc comment opening "Authenticated encryption:".
+#
+# The commit predates the rename, hence the old `keel-crypto` path. Rewriting history to
+# change it would invalidate these fingerprints and every published commit hash, for a
+# cosmetic gain.
+b2a45dd522f94ee2b6158f1f554f40407a8de49a:CHANGELOG.md:generic-api-key:19
+b2a45dd522f94ee2b6158f1f554f40407a8de49a:crates/keel-crypto/src/aead.rs:generic-api-key:1

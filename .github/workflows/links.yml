@@ -1,0 +1,39 @@
+name: Links
+
+# The documentation makes a lot of external claims — RustSec advisories, RFCs, the Argon2
+# paper, Apple and Mozilla licence pages, distribution channels. A dead link in a threat
+# model is a citation a reader cannot check, which for this project is the point of the
+# citation.
+#
+# Scheduled rather than per-pull-request: links rot on the internet's schedule, not on the
+# repository's, and a third-party outage must never block a merge.
+
+on:
+  schedule:
+    - cron: "37 6 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    name: Check documentation links
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install lychee --locked
+      - name: Check
+        run: |
+          # crates.io and the release URLs 404 until the first publish, so they are excluded
+          # rather than left to produce a failure that is expected and therefore ignored.
+          lychee --no-progress --max-retries 2 \
+            --exclude 'crates\.io/crates/bitting' \
+            --exclude 'github\.com/mdferdousalam/bitting/releases/download' \
+            --exclude '^https://bitting\.' \
+            './**/*.md'
