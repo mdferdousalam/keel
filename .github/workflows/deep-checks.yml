@@ -62,15 +62,30 @@ jobs:
           toolchain: nightly
           components: miri
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # Note for anyone reproducing this locally on an Apple Silicon Mac: it will not work.
+      # Miri aborts with "can't call foreign function `llvm.aarch64.neon.tbl1.v16i8` on OS
+      # `macos`" — BLAKE3's NEON backend, which Miri cannot execute. The x86_64 Linux runner
+      # takes BLAKE3's other path and gets through. Use a Linux box or this job.
       - name: Run the test suite under Miri
         env:
           # Strict provenance and stacked-borrows checking, with isolation left ON.
           #
-          # -Zmiri-disable-isolation was here for bitting-store's filesystem access. With
-          # that crate removed the remaining two are pure, so isolation stays enabled — which
-          # is the stricter setting, and means a new call into the operating system from the
-          # parsing code shows up as a failure rather than being quietly permitted.
+          # -Zmiri-disable-isolation was here for bitting-store's filesystem access. With that
+          # crate removed the remaining two compute rather than call the operating system, so
+          # isolation stays enabled: the stricter setting, under which a new syscall reaching
+          # the parsing code shows up as a failure instead of passing quietly.
           MIRIFLAGS: "-Zmiri-strict-provenance"
+          # The crates are pure; their test harness is not. proptest calls getcwd to find
+          # where to write its regression file, which isolation refuses, and the property
+          # tests aborted on that rather than on anything about the code. Turning off failure
+          # persistence removes the filesystem access instead of removing the isolation —
+          # narrower than -Zmiri-disable-isolation, which would have re-permitted every
+          # syscall to fix one.
+          #
+          # The cost is that a Miri-only counterexample is not written to
+          # proptest-regressions/. Acceptable: the same properties run under the normal test
+          # job on three platforms, where persistence works.
+          PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
         run: cargo +nightly miri test -p ${{ matrix.crate }}
 
   # ---------------------------------------------------------------------------
