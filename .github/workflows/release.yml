@@ -296,8 +296,16 @@ jobs:
             lipo -info "universal/${binary}"
           done
 
-          tar --sort=name --owner=0 --group=0 --numeric-owner \
-              -czf "dist/bitting-${version}-macos-universal.tar.gz" \
+          # Plain BSD tar, for the same reason as the darwin branch of the Package step:
+          # this job runs on macos-14 and --sort/--owner/--group/--numeric-owner are GNU
+          # extensions. The deterministic flags were copied here from the Linux branch and
+          # failed on the first run that reached this job, after the lipo and re-signing had
+          # already succeeded.
+          #
+          # And as there, nothing is lost: a universal binary is built from two ad-hoc signed
+          # inputs and re-signed afterwards, so its bytes carry three codesign timestamps. It
+          # was never going to be reproducible.
+          tar -czf "dist/bitting-${version}-macos-universal.tar.gz" \
               -C universal bitting bitting-agent bitting-mcp bitting-native-host
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
