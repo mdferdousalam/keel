@@ -227,10 +227,28 @@ mod tests {
         // The bug this whole module exists to prevent: dropping one key must not
         // unpin a page that another live key still occupies.
         let l = locker();
-        let buf = Box::new([0u8; 128]);
-        let a = buf.as_ptr();
-        // Second region deliberately inside the same page as the first.
-        let b = unsafe { buf.as_ptr().add(64) };
+
+        // Two pages are allocated so that a page-aligned pointer is guaranteed to exist
+        // inside the buffer, and both regions are placed just after it.
+        //
+        // The previous version allocated `Box<[u8; 128]>` and took offsets 0 and 64,
+        // assuming a 128-byte allocation never straddles a page boundary. That is usually
+        // true and is not guaranteed: when the block happens to start near the end of a
+        // page, offset 64 lands on the next one. It failed exactly that way on Windows —
+        // "both regions share one page: left 2, right 1" — which reads as a refcounting bug
+        // in the code under test and was a wrong assumption in the fixture.
+        let buf = vec![0u8; l.page_size * 2];
+        let base = buf.as_ptr();
+        let aligned = unsafe { base.add(base.align_offset(l.page_size)) };
+        let a = aligned;
+        // Second region inside the same page as the first, now provably so: the page is at
+        // least 4 KiB and both regions fit within the first 96 bytes of it.
+        let b = unsafe { aligned.add(64) };
+        assert_eq!(
+            a as usize / l.page_size,
+            b as usize / l.page_size,
+            "fixture is broken: the two regions must be on one page"
+        );
 
         let locked_a = l.lock_region(a, 32);
         l.lock_region(b, 32);
