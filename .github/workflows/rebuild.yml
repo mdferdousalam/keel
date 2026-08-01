@@ -93,6 +93,14 @@ jobs:
 
           # Repackage exactly as release.yml does, or the archive hash will differ for reasons
           # that have nothing to do with the binaries.
+          #
+          # "Exactly" includes the binary list. This tar took only `bitting` and
+          # `bitting-agent` while the build above produced four, matching a same-shaped bug in
+          # release.yml's Package step. Fixing release.yml alone would have been worse than
+          # leaving both wrong: the archives would then differ by two whole binaries, and this
+          # workflow reports any difference as "either a reproducibility bug or a substituted
+          # binary, and both are urgent" — a false alarm of the most alarming kind, on every
+          # release. Keep this list identical to the one in release.yml.
           version="${{ steps.tag.outputs.tag }}"
           version="${version#v}"
           target="x86_64-unknown-linux-musl"
@@ -100,7 +108,8 @@ jobs:
           tar --sort=name --owner=0 --group=0 --numeric-owner \
               --mtime="@${SOURCE_DATE_EPOCH}" \
               -czf "rebuilt/bitting-${version}-${target}.tar.gz" \
-              -C "target/${target}/release-repro" bitting bitting-agent
+              -C "target/${target}/release-repro" \
+              bitting bitting-agent bitting-mcp bitting-native-host
           (cd rebuilt && sha256sum ./*) > rebuilt/SHA256SUMS.local
           cat rebuilt/SHA256SUMS.local
 
