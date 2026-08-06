@@ -71,11 +71,11 @@ argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
 # XChaCha20Poly1305 is unconditional in 0.10; nonces come from `getrandom`
 # directly rather than the crate's helper, so its RNG feature stays off.
 chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"] }
-hkdf = "0.12.4"
-sha2 = "0.10.9"
+hkdf = "0.13.0"
+sha2 = "0.11.0"
 blake3 = "1.8"
 subtle = "2.6"
-getrandom = "0.2"
+getrandom = "0.4"
 
 # --- secret handling ---
 zeroize = { version = "1.8", features = ["derive", "alloc"] }
